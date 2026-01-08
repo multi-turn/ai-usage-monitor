@@ -71,7 +71,9 @@ class GeminiClient: BaseAPIClient, AIServiceAPI {
             projectedCost: projectedCost,
             currency: "USD",
             tier: "Free Tier",
-            lastUpdated: now
+            lastUpdated: now,
+            fiveHourUsage: nil,
+            sevenDayUsage: nil
         )
     }
 }

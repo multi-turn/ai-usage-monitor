@@ -25,33 +25,41 @@ struct ServiceCardView: View {
                 StatusIndicator(status: service.status)
             }
 
-            // Usage Bar
-            UsageBarView(
-                current: service.tokensUsed,
-                limit: service.tokensLimit,
-                percentage: service.usagePercentage
-            )
+            // Claude-specific Usage Windows
+            if service.hasClaudeUsageWindows {
+                ClaudeUsageView(
+                    fiveHourUsage: service.fiveHourUsage,
+                    sevenDayUsage: service.sevenDayUsage
+                )
+            } else {
+                // Standard Usage Bar for other providers
+                UsageBarView(
+                    current: service.tokensUsed,
+                    limit: service.tokensLimit,
+                    percentage: service.usagePercentage
+                )
 
-            // Usage Details
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Used")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(service.formattedTokensUsed)
-                        .font(.caption)
-                        .fontWeight(.medium)
-                }
+                // Usage Details
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Used")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(service.formattedTokensUsed)
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
 
-                Spacer()
+                    Spacer()
 
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("Limit")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(service.formattedTokensLimit)
-                        .font(.caption)
-                        .fontWeight(.medium)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("Limit")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(service.formattedTokensLimit)
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
                 }
             }
 
@@ -129,6 +137,76 @@ struct CostView: View {
         formatter.currencyCode = currency
         formatter.maximumFractionDigits = 2
         return formatter.string(from: amount as NSNumber) ?? "$0.00"
+    }
+}
+
+struct ClaudeUsageView: View {
+    let fiveHourUsage: Double?
+    let sevenDayUsage: Double?
+
+    var body: some View {
+        VStack(spacing: 10) {
+            // 5-Hour Usage
+            if let fiveHour = fiveHourUsage {
+                UsageRow(
+                    label: "5-Hour",
+                    percentage: fiveHour,
+                    color: colorForPercentage(fiveHour)
+                )
+            }
+
+            // 7-Day Usage
+            if let sevenDay = sevenDayUsage {
+                UsageRow(
+                    label: "7-Day",
+                    percentage: sevenDay,
+                    color: colorForPercentage(sevenDay)
+                )
+            }
+        }
+    }
+
+    private func colorForPercentage(_ percentage: Double) -> Color {
+        switch percentage {
+        case 0..<50: return .green
+        case 50..<75: return .yellow
+        case 75..<90: return .orange
+        default: return .red
+        }
+    }
+}
+
+struct UsageRow: View {
+    let label: String
+    let percentage: Double
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(String(format: "%.1f%%", percentage))
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(color)
+            }
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: 6)
+
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(color)
+                        .frame(width: geometry.size.width * CGFloat(min(percentage, 100) / 100), height: 6)
+                }
+            }
+            .frame(height: 6)
+        }
     }
 }
 

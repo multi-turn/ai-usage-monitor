@@ -17,7 +17,15 @@ struct UsageData: Codable, Equatable {
     let tier: String
     let lastUpdated: Date
 
+    // Claude-specific usage windows
+    let fiveHourUsage: Double?
+    let sevenDayUsage: Double?
+
     var usagePercentage: Double {
+        // Use 5-hour usage if available (Claude), otherwise calculate from tokens
+        if let fiveHour = fiveHourUsage {
+            return fiveHour
+        }
         guard tokensLimit > 0 else { return 0 }
         return (Double(tokensUsed) / Double(tokensLimit)) * 100
     }
@@ -47,7 +55,9 @@ struct UsageData: Codable, Equatable {
             projectedCost: Decimal(Double.random(in: 10...100)),
             currency: "USD",
             tier: "Free Tier",
-            lastUpdated: now
+            lastUpdated: now,
+            fiveHourUsage: nil,
+            sevenDayUsage: nil
         )
     }
 }

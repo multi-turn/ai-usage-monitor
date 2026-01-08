@@ -120,6 +120,11 @@ class ServiceViewModel: Identifiable {
     var currency: String { usage.currency }
     var resetDate: Date? { usage.resetDate }
 
+    // Claude-specific
+    var fiveHourUsage: Double? { usage.fiveHourUsage }
+    var sevenDayUsage: Double? { usage.sevenDayUsage }
+    var hasClaudeUsageWindows: Bool { fiveHourUsage != nil || sevenDayUsage != nil }
+
     var formattedTokensUsed: String { formatTokens(tokensUsed) }
     var formattedTokensLimit: String { formatTokens(tokensLimit) }
 

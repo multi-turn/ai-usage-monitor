@@ -134,7 +134,9 @@ class OpenAIClient: BaseAPIClient, AIServiceAPI {
             projectedCost: projectedCost,
             currency: "USD",
             tier: subscription.plan?.title ?? "Pay as you go",
-            lastUpdated: now
+            lastUpdated: now,
+            fiveHourUsage: nil,
+            sevenDayUsage: nil
         )
     }
 }

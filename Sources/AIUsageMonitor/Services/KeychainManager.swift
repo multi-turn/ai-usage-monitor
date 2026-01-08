@@ -72,6 +72,54 @@ class KeychainManager {
             return false
         }
     }
+
+    // MARK: - Claude Code Credentials
+
+    /// Reads Claude Code OAuth credentials from system Keychain
+    func getClaudeCodeCredentials() -> ClaudeCodeCredentials? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "Claude Code-credentials",
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let data = result as? Data else {
+            return nil
+        }
+
+        do {
+            let credentials = try JSONDecoder().decode(ClaudeCodeCredentials.self, from: data)
+            return credentials
+        } catch {
+            return nil
+        }
+    }
+}
+
+struct ClaudeCodeCredentials: Codable {
+    let accessToken: String
+    let refreshToken: String?
+    let expiresAt: Date?
+    let idToken: String?
+    let rateLimitTier: String?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case expiresAt = "expires_at"
+        case idToken = "id_token"
+        case rateLimitTier = "rate_limit_tier"
+    }
+
+    var isExpired: Bool {
+        guard let expiresAt = expiresAt else { return false }
+        return Date() >= expiresAt
+    }
 }
 
 enum KeychainError: LocalizedError {
