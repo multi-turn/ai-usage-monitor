@@ -45,25 +45,75 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
 
     // MARK: - AIServiceAPI
 
+    private func debugLog(_ message: String) {
+        let logFile = "/tmp/aiusagemonitor.log"
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let entry = "[\(timestamp)] [API] \(message)\n"
+        if let data = entry.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logFile) {
+                if let handle = FileHandle(forWritingAtPath: logFile) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    handle.closeFile()
+                }
+            } else {
+                FileManager.default.createFile(atPath: logFile, contents: data)
+            }
+        }
+    }
+
     func fetchUsage() async throws -> UsageData {
+        debugLog("📡 fetchUsage called")
         // Try OAuth first (Claude Code credentials from Keychain)
-        if let credentials = KeychainManager.shared.getClaudeCodeCredentials(),
-           !credentials.isExpired {
+        if var credentials = KeychainManager.shared.getClaudeCodeCredentials() {
+            debugLog("✅ Got credentials, token prefix: \(String(credentials.accessToken.prefix(20)))...")
+            // Check if token is expired or will expire soon
+            if credentials.isExpired || credentials.willExpireSoon {
+                print("🔄 Token expired or expiring soon, attempting refresh...")
+                do {
+                    credentials = try await KeychainManager.shared.refreshClaudeCodeToken()
+                    print("✅ Token refreshed automatically")
+                } catch {
+                    print("⚠️ Auto-refresh failed: \(error.localizedDescription)")
+                    // If refresh fails with no refresh token, show helpful message
+                    throw APIError.httpError(
+                        statusCode: 401,
+                        message: "토큰이 만료되었습니다. 터미널에서 'claude'를 실행해주세요."
+                    )
+                }
+            }
+
             do {
-                return try await fetchOAuthUsage(accessToken: credentials.accessToken, tier: credentials.rateLimitTier)
-            } catch {
-                // Fall back to local tracking if OAuth fails
-                print("OAuth failed, falling back to local tracking: \(error)")
+                debugLog("🌐 Calling fetchOAuthUsage...")
+                let result = try await fetchOAuthUsage(accessToken: credentials.accessToken, tier: credentials.rateLimitTier)
+                debugLog("✅ Got usage: 5h=\(result.fiveHourUsage ?? -1)%, 7d=\(result.sevenDayUsage ?? -1)%")
+                return result
+            } catch let error as APIError {
+                debugLog("❌ API error: \(error)")
+                if case .unauthorized = error {
+                    // Try one more refresh attempt
+                    print("🔄 Got 401, attempting token refresh...")
+                    do {
+                        let newCredentials = try await KeychainManager.shared.refreshClaudeCodeToken()
+                        return try await fetchOAuthUsage(accessToken: newCredentials.accessToken, tier: newCredentials.rateLimitTier)
+                    } catch {
+                        throw APIError.httpError(
+                            statusCode: 401,
+                            message: "토큰이 만료되었습니다. 터미널에서 'claude'를 실행해주세요."
+                        )
+                    }
+                }
+                throw error
             }
         }
 
-        // Fall back to local tracking
-        guard !config.apiKey.isEmpty else {
-            throw APIError.missingAPIKey
+        // Fall back to local tracking if no credentials
+        if !config.apiKey.isEmpty {
+            let localUsage = getLocalUsage()
+            return convertToUsageData(localUsage: localUsage, tier: "Local Tracking")
         }
 
-        let localUsage = getLocalUsage()
-        return convertToUsageData(localUsage: localUsage, tier: "Local Tracking")
+        throw APIError.missingAPIKey
     }
 
     // MARK: - OAuth API
@@ -81,22 +131,29 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("AIUsageMonitor/1.0", forHTTPHeaderField: "User-Agent")
 
+        debugLog("📤 Sending request to \(oauthUsageURL)")
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
+            debugLog("❌ Invalid response type")
             throw APIError.invalidResponse
         }
 
+        debugLog("📥 HTTP \(httpResponse.statusCode)")
+
         guard httpResponse.statusCode == 200 else {
             if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+                debugLog("❌ Unauthorized")
                 throw APIError.unauthorized
             }
             let message = String(data: data, encoding: .utf8)
+            debugLog("❌ HTTP Error: \(message ?? "unknown")")
             throw APIError.httpError(statusCode: httpResponse.statusCode, message: message)
         }
 
         let decoder = JSONDecoder()
         let usageResponse = try decoder.decode(OAuthUsageResponse.self, from: data)
+        debugLog("✅ Decoded response: 5h=\(usageResponse.fiveHour?.utilization ?? -1)")
 
         return convertOAuthToUsageData(response: usageResponse, tier: tier)
     }
@@ -109,15 +166,27 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
         let primaryWindow = response.fiveHour ?? response.sevenDay
         let usagePercentage = primaryWindow?.utilization ?? 0
 
-        // Parse reset date
+        let formatter = ISO8601DateFormatter()
+
+        // Parse 5-hour reset date
         var resetDate: Date? = nil
-        if let resetsAt = primaryWindow?.resetsAt {
-            let formatter = ISO8601DateFormatter()
+        if let resetsAt = response.fiveHour?.resetsAt {
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             resetDate = formatter.date(from: resetsAt)
             if resetDate == nil {
                 formatter.formatOptions = [.withInternetDateTime]
                 resetDate = formatter.date(from: resetsAt)
+            }
+        }
+
+        // Parse 7-day reset date
+        var sevenDayResetDate: Date? = nil
+        if let resetsAt = response.sevenDay?.resetsAt {
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            sevenDayResetDate = formatter.date(from: resetsAt)
+            if sevenDayResetDate == nil {
+                formatter.formatOptions = [.withInternetDateTime]
+                sevenDayResetDate = formatter.date(from: resetsAt)
             }
         }
 
@@ -136,15 +205,21 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
             currentCost = Decimal(creditsUsed) / 100 // Convert cents to dollars
         }
 
-        // Determine tier name
+        // Determine tier name (tier can be like "default_claude_max_5x")
         let tierName: String
-        if let t = tier {
-            switch t.lowercased() {
-            case "max": tierName = "Claude Max"
-            case "pro": tierName = "Claude Pro"
-            case "team": tierName = "Claude Team"
-            case "enterprise": tierName = "Claude Enterprise"
-            default: tierName = t
+        if let t = tier?.lowercased() {
+            if t.contains("max") {
+                tierName = "Claude Max"
+            } else if t.contains("pro") {
+                tierName = "Claude Pro"
+            } else if t.contains("team") {
+                tierName = "Claude Team"
+            } else if t.contains("enterprise") {
+                tierName = "Claude Enterprise"
+            } else if t.contains("free") {
+                tierName = "Claude Free"
+            } else {
+                tierName = tier ?? "Claude"
             }
         } else {
             tierName = "Claude Pro"
@@ -158,6 +233,7 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
             periodStart: startOfMonth,
             periodEnd: endOfMonth,
             resetDate: resetDate ?? endOfMonth,
+            sevenDayResetDate: sevenDayResetDate,
             currentCost: currentCost,
             projectedCost: nil,
             currency: "USD",
@@ -229,6 +305,7 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
             periodStart: startOfMonth,
             periodEnd: endOfMonth,
             resetDate: endOfMonth,
+            sevenDayResetDate: nil,
             currentCost: currentCost,
             projectedCost: projectedCost,
             currency: "USD",

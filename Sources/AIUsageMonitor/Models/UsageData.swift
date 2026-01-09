@@ -8,7 +8,8 @@ struct UsageData: Codable, Equatable {
 
     let periodStart: Date
     let periodEnd: Date
-    let resetDate: Date?
+    let resetDate: Date?          // 5-hour reset
+    let sevenDayResetDate: Date?  // 7-day reset
 
     let currentCost: Decimal?
     let projectedCost: Decimal?
@@ -39,6 +40,11 @@ struct UsageData: Codable, Equatable {
         return Calendar.current.dateComponents([.day], from: Date(), to: resetDate).day
     }
 
+    var daysUntilSevenDayReset: Int? {
+        guard let sevenDayResetDate = sevenDayResetDate else { return nil }
+        return Calendar.current.dateComponents([.day], from: Date(), to: sevenDayResetDate).day
+    }
+
     static func placeholder(for type: ServiceType) -> UsageData {
         let now = Date()
         let endOfMonth = Calendar.current.date(byAdding: .month, value: 1, to: now) ?? now
@@ -51,6 +57,7 @@ struct UsageData: Codable, Equatable {
             periodStart: now,
             periodEnd: endOfMonth,
             resetDate: endOfMonth,
+            sevenDayResetDate: nil,
             currentCost: Decimal(Double.random(in: 5...50)),
             projectedCost: Decimal(Double.random(in: 10...100)),
             currency: "USD",

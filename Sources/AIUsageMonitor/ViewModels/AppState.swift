@@ -1,5 +1,7 @@
 import Foundation
 import SwiftUI
+import Combine
+import ServiceManagement
 
 @Observable
 class AppState {
@@ -8,6 +10,10 @@ class AppState {
     var lastRefreshDate: Date?
     var errorMessage: String?
     var showingSettings: Bool = false
+    var launchAtLogin: Bool = false
+
+    private var refreshTimer: Timer?
+    private var refreshInterval: TimeInterval = 300 // 5 minutes default
 
     var totalUsagePercentage: Double {
         guard !services.isEmpty else { return 0 }
@@ -31,6 +37,73 @@ class AppState {
 
     init() {
         setupPlaceholderServices()
+        loadLaunchAtLoginState()
+        // Auto-refresh on launch
+        Task {
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s delay
+            await refresh()
+            await MainActor.run {
+                startAutoRefreshTimer()
+            }
+        }
+    }
+
+    deinit {
+        stopAutoRefreshTimer()
+    }
+
+    // MARK: - Auto Refresh Timer
+
+    func startAutoRefreshTimer() {
+        stopAutoRefreshTimer()
+
+        // Get refresh interval from first enabled service
+        if let enabledService = services.first(where: { $0.config.isEnabled }) {
+            refreshInterval = enabledService.config.refreshInterval
+        }
+
+        print("⏰ Starting auto-refresh timer: \(Int(refreshInterval))s interval")
+
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
+            Task { [weak self] in
+                await self?.refresh()
+            }
+        }
+    }
+
+    func stopAutoRefreshTimer() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+    }
+
+    func updateRefreshInterval(_ interval: TimeInterval) {
+        refreshInterval = interval
+        startAutoRefreshTimer()
+    }
+
+    // MARK: - Launch at Login
+
+    func loadLaunchAtLoginState() {
+        if #available(macOS 13.0, *) {
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        if #available(macOS 13.0, *) {
+            do {
+                if enabled {
+                    try SMAppService.mainApp.register()
+                    print("✅ Launch at login enabled")
+                } else {
+                    try SMAppService.mainApp.unregister()
+                    print("✅ Launch at login disabled")
+                }
+                launchAtLogin = enabled
+            } catch {
+                print("❌ Failed to set launch at login: \(error)")
+            }
+        }
     }
 
     private func setupPlaceholderServices() {
@@ -43,20 +116,27 @@ class AppState {
     }
 
     func refresh() async {
+        print("🔄 Starting refresh...")
         isRefreshing = true
         defer { isRefreshing = false }
 
         let results = await withTaskGroup(of: (Int, String, Result<UsageData, Error>).self) { group in
             for (index, service) in services.enumerated() {
-                guard service.config.isEnabled else { continue }
+                guard service.config.isEnabled else {
+                    print("⏭️ Skipping disabled service: \(service.name)")
+                    continue
+                }
                 let serviceName = service.name
+                print("📡 Fetching: \(serviceName)")
 
                 group.addTask {
                     do {
                         let client = self.createAPIClient(for: service.config)
                         let usage = try await client.fetchUsage()
+                        print("✅ \(serviceName): \(usage.usagePercentage)%")
                         return (index, serviceName, .success(usage))
                     } catch {
+                        print("❌ \(serviceName) error: \(error)")
                         return (index, serviceName, .failure(error))
                     }
                 }
@@ -75,23 +155,32 @@ class AppState {
                 switch result {
                 case .success(let usage):
                     services[index].usage = usage
+                    print("📊 Updated \(serviceName): \(usage.usagePercentage)%")
+
+                    // Save to history
+                    let historyEntry = UsageHistoryEntry(
+                        serviceType: services[index].config.serviceType,
+                        fiveHourUsage: usage.fiveHourUsage,
+                        sevenDayUsage: usage.sevenDayUsage
+                    )
+                    UsageHistoryStore.shared.saveEntry(historyEntry)
+
                 case .failure(let error):
                     errors.append("\(serviceName): \(error.localizedDescription)")
                 }
             }
             lastRefreshDate = Date()
             errorMessage = errors.isEmpty ? nil : errors.joined(separator: "; ")
+            print("🏁 Refresh complete. Errors: \(errorMessage ?? "none")")
         }
     }
 
     private func createAPIClient(for config: ServiceConfig) -> AIServiceAPI {
         switch config.serviceType {
-        case .openai:
-            return OpenAIClient(config: config)
         case .claude:
             return AnthropicClient(config: config)
-        case .gemini:
-            return GeminiClient(config: config)
+        case .codex:
+            return CodexClient(config: config)
         }
     }
 }
@@ -119,6 +208,8 @@ class ServiceViewModel: Identifiable {
     var projectedCost: Decimal? { usage.projectedCost }
     var currency: String { usage.currency }
     var resetDate: Date? { usage.resetDate }
+    var sevenDayResetDate: Date? { usage.sevenDayResetDate }
+    var daysUntilSevenDayReset: Int? { usage.daysUntilSevenDayReset }
 
     // Claude-specific
     var fiveHourUsage: Double? { usage.fiveHourUsage }
