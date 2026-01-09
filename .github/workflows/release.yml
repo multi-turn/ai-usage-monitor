@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build App Bundle
+        run: |
+          chmod +x scripts/build-app.sh
+          ./scripts/build-app.sh ${{ steps.version.outputs.VERSION }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            .build/release/AIUsageMonitor-${{ steps.version.outputs.VERSION }}.dmg
+          body: |
+            ## AI Usage Monitor v${{ steps.version.outputs.VERSION }}
+
+            ### Installation
+            1. Download the DMG file
+            2. Open the DMG and drag "AI Usage Monitor" to Applications
+            3. On first launch, right-click the app and select "Open" to bypass Gatekeeper
+
+            ### Requirements
+            - macOS 14.0 (Sonoma) or later
+            - Claude Code installed and logged in (for Claude monitoring)
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
