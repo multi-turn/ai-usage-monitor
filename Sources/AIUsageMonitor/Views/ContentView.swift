@@ -2,8 +2,25 @@ import SwiftUI
 
 struct ContentView: View {
     @Bindable var appState: AppState
-    @Environment(\.openWindow) private var openWindow
-    @State private var selectedService: ServiceViewModel?
+    @State private var showSettings: Bool = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if showSettings {
+                SettingsPanel(appState: appState, showSettings: $showSettings)
+            } else {
+                MainPanel(appState: appState, showSettings: $showSettings)
+            }
+        }
+        .frame(width: 300)
+    }
+}
+
+// MARK: - Main Panel
+
+struct MainPanel: View {
+    @Bindable var appState: AppState
+    @Binding var showSettings: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,8 +32,9 @@ struct ContentView: View {
                 Spacer()
 
                 Button {
-                    NSApp.activate(ignoringOtherApps: true)
-                    openWindow(id: "settings")
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showSettings = true
+                    }
                 } label: {
                     Image(systemName: "gearshape.fill")
                         .foregroundStyle(.secondary)
@@ -60,7 +78,7 @@ struct ContentView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 } else if let lastRefresh = appState.lastRefreshDate {
-                    Text("\(L.lastUpdate): \(lastRefresh, style: .relative) \(L.ago)")
+                    Text(formatLastUpdate(lastRefresh))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
@@ -84,11 +102,200 @@ struct ContentView: View {
             .padding(.horizontal)
             .padding(.vertical, 8)
         }
-        .frame(width: 300)
     }
 
     private var enabledServices: [ServiceViewModel] {
         appState.services.filter { $0.config.isEnabled }
+    }
+
+    private func formatLastUpdate(_ date: Date) -> String {
+        let interval = Date().timeIntervalSince(date)
+        let seconds = Int(interval)
+        let minutes = seconds / 60
+        let hours = minutes / 60
+
+        let timeText: String
+        if hours > 0 {
+            timeText = "\(hours)h \(minutes % 60)m"
+        } else if minutes > 0 {
+            timeText = "\(minutes)m \(seconds % 60)s"
+        } else {
+            timeText = "\(seconds)s"
+        }
+
+        return "\(L.lastUpdate): \(timeText) \(L.ago)"
+    }
+}
+
+// MARK: - Settings Panel (Inline)
+
+struct SettingsPanel: View {
+    @Bindable var appState: AppState
+    @Binding var showSettings: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showSettings = false
+                    }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+
+                Text(L.settings)
+                    .font(.headline)
+
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+
+            ScrollView {
+                VStack(spacing: 16) {
+                    // Services Section
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(L.services)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+
+                        // Claude
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(Color(hex: "#D97706") ?? .orange)
+                                .frame(width: 10, height: 10)
+                            Text("Claude")
+                                .font(.subheadline)
+                            Spacer()
+                            Toggle("", isOn: claudeEnabledBinding)
+                                .labelsHidden()
+                                .scaleEffect(0.8)
+                        }
+
+                        // Codex
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(Color(hex: "#10A37F") ?? .green)
+                                .frame(width: 10, height: 10)
+                            Text("Codex")
+                                .font(.subheadline)
+                            Spacer()
+                            Toggle("", isOn: codexEnabledBinding)
+                                .labelsHidden()
+                                .scaleEffect(0.8)
+                        }
+                    }
+                    .padding(.horizontal)
+
+                    Divider()
+                        .padding(.horizontal)
+
+                    // General Section
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(L.general)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+
+                        // Launch at Login
+                        HStack {
+                            Text(L.launchAtLogin)
+                                .font(.subheadline)
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { appState.launchAtLogin },
+                                set: { appState.setLaunchAtLogin($0) }
+                            ))
+                            .labelsHidden()
+                            .scaleEffect(0.8)
+                        }
+
+                        // Refresh Interval
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(L.refreshInterval)
+                                .font(.subheadline)
+
+                            Picker("", selection: refreshIntervalBinding) {
+                                Text("1m").tag(TimeInterval(60))
+                                Text("5m").tag(TimeInterval(300))
+                                Text("15m").tag(TimeInterval(900))
+                                Text("30m").tag(TimeInterval(1800))
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                    }
+                    .padding(.horizontal)
+
+                    Divider()
+                        .padding(.horizontal)
+
+                    // Language Section
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(L.language)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+
+                        Picker("", selection: languageBinding) {
+                            ForEach(Language.allCases, id: \.self) { lang in
+                                Text(lang.displayName).tag(lang)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.vertical, 12)
+            }
+        }
+    }
+
+    // MARK: - Auto-apply Bindings
+
+    private var claudeEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { appState.services.first { $0.config.serviceType == .claude }?.config.isEnabled ?? true },
+            set: { newValue in
+                if let idx = appState.services.firstIndex(where: { $0.config.serviceType == .claude }) {
+                    appState.services[idx].config.isEnabled = newValue
+                }
+            }
+        )
+    }
+
+    private var codexEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { appState.services.first { $0.config.serviceType == .codex }?.config.isEnabled ?? true },
+            set: { newValue in
+                if let idx = appState.services.firstIndex(where: { $0.config.serviceType == .codex }) {
+                    appState.services[idx].config.isEnabled = newValue
+                }
+            }
+        )
+    }
+
+    private var refreshIntervalBinding: Binding<TimeInterval> {
+        Binding(
+            get: { appState.services.first?.config.refreshInterval ?? 300 },
+            set: { newValue in
+                for i in appState.services.indices {
+                    appState.services[i].config.refreshInterval = newValue
+                }
+                appState.updateRefreshInterval(newValue)
+            }
+        )
+    }
+
+    private var languageBinding: Binding<Language> {
+        Binding(
+            get: { L.currentLanguage },
+            set: { L.currentLanguage = $0 }
+        )
     }
 }
 

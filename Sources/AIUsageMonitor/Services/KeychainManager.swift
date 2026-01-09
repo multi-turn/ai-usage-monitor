@@ -12,24 +12,6 @@ class KeychainManager {
 
     private init() {}
 
-    private func debugLog(_ message: String) {
-        let logFile = "/tmp/aiusagemonitor.log"
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let entry = "[\(timestamp)] \(message)\n"
-        if let data = entry.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: logFile) {
-                if let handle = FileHandle(forWritingAtPath: logFile) {
-                    handle.seekToEndOfFile()
-                    handle.write(data)
-                    handle.closeFile()
-                }
-            } else {
-                FileManager.default.createFile(atPath: logFile, contents: data)
-            }
-        }
-        print(message)
-    }
-
     func save(_ value: String, for key: String) throws {
         guard let data = value.data(using: .utf8) else {
             throw KeychainError.encodingFailed
@@ -101,18 +83,14 @@ class KeychainManager {
     /// Reads Claude Code OAuth credentials from system Keychain
     /// Uses single query + caching to minimize Keychain access prompts
     func getClaudeCodeCredentials() -> ClaudeCodeCredentials? {
-        debugLog("📋 getClaudeCodeCredentials called")
-
         // Return cached credentials if still valid
         if let cached = cachedClaudeCredentials,
            let cacheTime = credentialsCacheTime,
            Date().timeIntervalSince(cacheTime) < cacheValidityDuration,
            !cached.isExpired {
-            debugLog("📦 Returning cached credentials")
             return cached
         }
 
-        debugLog("🔍 Fetching from Keychain...")
         // Single Keychain query to get all Claude Code credentials at once
         let credentials = getAllClaudeCodeCredentials()
 
@@ -158,24 +136,12 @@ class KeychainManager {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
-        debugLog("🔑 Keychain query status: \(status)")
-
-        guard status == errSecSuccess else {
-            debugLog("❌ Keychain query failed: \(status)")
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let creds = parseCredentials(from: data) else {
             return []
         }
 
-        guard let data = result as? Data else {
-            debugLog("❌ Keychain data not found or wrong type")
-            return []
-        }
-
-        guard let creds = parseCredentials(from: data) else {
-            debugLog("❌ Failed to parse credentials from data (\(data.count) bytes)")
-            return []
-        }
-
-        debugLog("✅ Credentials loaded successfully, expires: \(creds.expiresAt?.description ?? "unknown")")
         return [creds]
     }
 

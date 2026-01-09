@@ -45,28 +45,9 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
 
     // MARK: - AIServiceAPI
 
-    private func debugLog(_ message: String) {
-        let logFile = "/tmp/aiusagemonitor.log"
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let entry = "[\(timestamp)] [API] \(message)\n"
-        if let data = entry.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: logFile) {
-                if let handle = FileHandle(forWritingAtPath: logFile) {
-                    handle.seekToEndOfFile()
-                    handle.write(data)
-                    handle.closeFile()
-                }
-            } else {
-                FileManager.default.createFile(atPath: logFile, contents: data)
-            }
-        }
-    }
-
     func fetchUsage() async throws -> UsageData {
-        debugLog("📡 fetchUsage called")
         // Try OAuth first (Claude Code credentials from Keychain)
         if var credentials = KeychainManager.shared.getClaudeCodeCredentials() {
-            debugLog("✅ Got credentials, token prefix: \(String(credentials.accessToken.prefix(20)))...")
             // Check if token is expired or will expire soon
             if credentials.isExpired || credentials.willExpireSoon {
                 print("🔄 Token expired or expiring soon, attempting refresh...")
@@ -84,12 +65,8 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
             }
 
             do {
-                debugLog("🌐 Calling fetchOAuthUsage...")
-                let result = try await fetchOAuthUsage(accessToken: credentials.accessToken, tier: credentials.rateLimitTier)
-                debugLog("✅ Got usage: 5h=\(result.fiveHourUsage ?? -1)%, 7d=\(result.sevenDayUsage ?? -1)%")
-                return result
+                return try await fetchOAuthUsage(accessToken: credentials.accessToken, tier: credentials.rateLimitTier)
             } catch let error as APIError {
-                debugLog("❌ API error: \(error)")
                 if case .unauthorized = error {
                     // Try one more refresh attempt
                     print("🔄 Got 401, attempting token refresh...")
@@ -131,29 +108,22 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("AIUsageMonitor/1.0", forHTTPHeaderField: "User-Agent")
 
-        debugLog("📤 Sending request to \(oauthUsageURL)")
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            debugLog("❌ Invalid response type")
             throw APIError.invalidResponse
         }
 
-        debugLog("📥 HTTP \(httpResponse.statusCode)")
-
         guard httpResponse.statusCode == 200 else {
             if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
-                debugLog("❌ Unauthorized")
                 throw APIError.unauthorized
             }
             let message = String(data: data, encoding: .utf8)
-            debugLog("❌ HTTP Error: \(message ?? "unknown")")
             throw APIError.httpError(statusCode: httpResponse.statusCode, message: message)
         }
 
         let decoder = JSONDecoder()
         let usageResponse = try decoder.decode(OAuthUsageResponse.self, from: data)
-        debugLog("✅ Decoded response: 5h=\(usageResponse.fiveHour?.utilization ?? -1)")
 
         return convertOAuthToUsageData(response: usageResponse, tier: tier)
     }

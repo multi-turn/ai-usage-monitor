@@ -12,13 +12,6 @@ struct AIUsageMonitorApp: App {
             MenuBarLabel(appState: appState)
         }
         .menuBarExtraStyle(.window)
-
-        Window("설정", id: "settings") {
-            SettingsView(appState: appState)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
-        .defaultPosition(.center)
     }
 }
 
