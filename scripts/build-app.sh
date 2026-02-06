@@ -16,8 +16,16 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 mkdir -p "$APP_BUNDLE/Contents/Resources/Scripts"
+mkdir -p "$APP_BUNDLE/Contents/Frameworks"
 
 cp "$BUILD_DIR/AIUsageMonitor" "$APP_BUNDLE/Contents/MacOS/"
+
+if [ -d "$BUILD_DIR/Sparkle.framework" ]; then
+    cp -R "$BUILD_DIR/Sparkle.framework" "$APP_BUNDLE/Contents/Frameworks/"
+    if ! otool -l "$APP_BUNDLE/Contents/MacOS/AIUsageMonitor" | grep -q "@executable_path/../Frameworks"; then
+        install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/AIUsageMonitor"
+    fi
+fi
 
 if [ -f "Sources/AIUsageMonitor/Resources/Scripts/updater.sh" ]; then
     cp "Sources/AIUsageMonitor/Resources/Scripts/updater.sh" "$APP_BUNDLE/Contents/Resources/Scripts/"
@@ -53,6 +61,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
     <string>public.app-category.utilities</string>
     <key>SUFeedURL</key>
     <string>https://github.com/multi-turn/ai-usage-monitor/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>iAtZSYvS7Gk6Xs/gONrL98ZxOEFNXsHrd8/Cyi8z/os=</string>
 </dict>
 </plist>
 EOF
@@ -62,7 +72,7 @@ echo -n "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
 echo "✅ App bundle created: $APP_BUNDLE"
 
 echo "🔐 Signing app with Developer ID..."
-codesign --force --deep --options runtime --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
+codesign --force --deep --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
 codesign --verify --verbose "$APP_BUNDLE"
 echo "✅ App signed successfully"
 
@@ -82,7 +92,7 @@ hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_TEMP" -ov -format UDZO "$DM
 rm -rf "$DMG_TEMP"
 
 echo "🔐 Signing DMG..."
-codesign --force --sign "$SIGNING_IDENTITY" "$DMG_PATH"
+codesign --force --timestamp --sign "$SIGNING_IDENTITY" "$DMG_PATH"
 echo "✅ DMG signed successfully"
 
 echo "✅ DMG created: $DMG_PATH"
