@@ -116,9 +116,22 @@ class AppState {
     }
 
     func refresh() async {
+        let shouldStart = await MainActor.run { () -> Bool in
+            if isRefreshing {
+                print("⏳ Refresh already in progress, skipping")
+                return false
+            }
+            isRefreshing = true
+            return true
+        }
+        guard shouldStart else { return }
+        defer {
+            Task { @MainActor in
+                isRefreshing = false
+            }
+        }
+
         print("🔄 Starting refresh...")
-        isRefreshing = true
-        defer { isRefreshing = false }
 
         let results = await withTaskGroup(of: (Int, String, Result<UsageData, Error>).self) { group in
             for (index, service) in services.enumerated() {

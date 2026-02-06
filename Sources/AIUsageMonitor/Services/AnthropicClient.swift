@@ -56,7 +56,9 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
                     print("✅ Token refreshed automatically")
                 } catch {
                     print("⚠️ Auto-refresh failed: \(error.localizedDescription)")
-                    // If refresh fails with no refresh token, show helpful message
+                    if error is TokenRefreshError {
+                        KeychainManager.shared.clearCredentialsCache()
+                    }
                     throw APIError.httpError(
                         statusCode: 401,
                         message: "토큰이 만료되었습니다. 터미널에서 'claude'를 실행해주세요."
@@ -74,6 +76,9 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
                         let newCredentials = try await KeychainManager.shared.refreshClaudeCodeToken()
                         return try await fetchOAuthUsage(accessToken: newCredentials.accessToken, tier: newCredentials.rateLimitTier)
                     } catch {
+                        if error is TokenRefreshError {
+                            KeychainManager.shared.clearCredentialsCache()
+                        }
                         throw APIError.httpError(
                             statusCode: 401,
                             message: "토큰이 만료되었습니다. 터미널에서 'claude'를 실행해주세요."

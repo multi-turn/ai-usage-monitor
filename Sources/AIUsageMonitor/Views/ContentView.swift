@@ -3,6 +3,9 @@ import SwiftUI
 struct ContentView: View {
     @Bindable var appState: AppState
     @State private var showSettings: Bool = false
+    @State private var lastDisappearTime: Date?
+    
+    private let autoResetDelay: TimeInterval = 10
 
     var body: some View {
         VStack(spacing: 0) {
@@ -13,6 +16,17 @@ struct ContentView: View {
             }
         }
         .frame(width: 300)
+        .animation(nil, value: showSettings)
+        .onAppear {
+            if showSettings,
+               let lastDisappear = lastDisappearTime,
+               Date().timeIntervalSince(lastDisappear) >= autoResetDelay {
+                showSettings = false
+            }
+        }
+        .onDisappear {
+            lastDisappearTime = Date()
+        }
     }
 }
 
@@ -32,9 +46,7 @@ struct MainPanel: View {
                 Spacer()
 
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showSettings = true
-                    }
+                    showSettings = true
                 } label: {
                     Image(systemName: "gearshape.fill")
                         .foregroundStyle(.secondary)
@@ -138,12 +150,12 @@ struct SettingsPanel: View {
             // Header
             HStack {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showSettings = false
-                    }
+                    showSettings = false
                 } label: {
                     Image(systemName: "chevron.left")
                         .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
@@ -165,30 +177,28 @@ struct SettingsPanel: View {
                             .foregroundStyle(.secondary)
 
                         // Claude
-                        HStack(spacing: 10) {
-                            Circle()
-                                .fill(Color(hex: "#D97706") ?? .orange)
-                                .frame(width: 10, height: 10)
-                            Text("Claude")
-                                .font(.subheadline)
-                            Spacer()
-                            Toggle("", isOn: claudeEnabledBinding)
-                                .labelsHidden()
-                                .scaleEffect(0.8)
+                        Toggle(isOn: claudeEnabledBinding) {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(Color(hex: "#D97706") ?? .orange)
+                                    .frame(width: 10, height: 10)
+                                Text("Claude")
+                                    .font(.subheadline)
+                            }
                         }
+                        .toggleStyle(BrandedCheckboxToggleStyle(tint: Color(hex: "#D97706") ?? .orange))
 
                         // Codex
-                        HStack(spacing: 10) {
-                            Circle()
-                                .fill(Color(hex: "#10A37F") ?? .green)
-                                .frame(width: 10, height: 10)
-                            Text("Codex")
-                                .font(.subheadline)
-                            Spacer()
-                            Toggle("", isOn: codexEnabledBinding)
-                                .labelsHidden()
-                                .scaleEffect(0.8)
+                        Toggle(isOn: codexEnabledBinding) {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(Color(hex: "#10A37F") ?? .green)
+                                    .frame(width: 10, height: 10)
+                                Text("Codex")
+                                    .font(.subheadline)
+                            }
                         }
+                        .toggleStyle(BrandedCheckboxToggleStyle(tint: Color(hex: "#10A37F") ?? .green))
                     }
                     .padding(.horizontal)
 
@@ -202,18 +212,14 @@ struct SettingsPanel: View {
                             .fontWeight(.semibold)
                             .foregroundStyle(.secondary)
 
-                        // Launch at Login
-                        HStack {
+                        Toggle(isOn: Binding(
+                            get: { appState.launchAtLogin },
+                            set: { appState.setLaunchAtLogin($0) }
+                        )) {
                             Text(L.launchAtLogin)
                                 .font(.subheadline)
-                            Spacer()
-                            Toggle("", isOn: Binding(
-                                get: { appState.launchAtLogin },
-                                set: { appState.setLaunchAtLogin($0) }
-                            ))
-                            .labelsHidden()
-                            .scaleEffect(0.8)
                         }
+                        .toggleStyle(BrandedCheckboxToggleStyle(tint: .blue))
 
                         // Refresh Interval
                         VStack(alignment: .leading, spacing: 6) {
@@ -241,17 +247,44 @@ struct SettingsPanel: View {
                             .fontWeight(.semibold)
                             .foregroundStyle(.secondary)
 
-                        Picker("", selection: languageBinding) {
+                        Menu {
                             ForEach(Language.allCases, id: \.self) { lang in
-                                Text(lang.displayName).tag(lang)
+                                Button {
+                                    L.currentLanguage = lang
+                                } label: {
+                                    if L.currentLanguage == lang {
+                                        Label(lang.displayName, systemImage: "checkmark")
+                                    } else {
+                                        Text(lang.displayName)
+                                    }
+                                }
                             }
+                        } label: {
+                            HStack {
+                                Text(L.currentLanguage.displayName)
+                                Spacer()
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(Color.primary.opacity(0.06))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(Color.primary.opacity(0.18), lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
-                        .pickerStyle(.menu)
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal)
+
+
                 }
                 .padding(.vertical, 12)
             }
+            .scrollIndicators(.hidden)
         }
     }
 
@@ -291,18 +324,15 @@ struct SettingsPanel: View {
         )
     }
 
-    private var languageBinding: Binding<Language> {
-        Binding(
-            get: { L.currentLanguage },
-            set: { L.currentLanguage = $0 }
-        )
-    }
 }
 
 // MARK: - Circular Gauge (Dual Ring)
 
 struct CircularGaugeView: View {
     let service: ServiceViewModel
+    
+    @State private var animatedFiveHour: Double = 0
+    @State private var animatedSevenDay: Double = 0
 
     var body: some View {
         VStack(spacing: 6) {
@@ -314,7 +344,7 @@ struct CircularGaugeView: View {
 
                 // Outer ring - 5h remaining
                 Circle()
-                    .trim(from: 0, to: CGFloat(fiveHourRemaining))
+                    .trim(from: 0, to: CGFloat(animatedFiveHour))
                     .stroke(service.brandColor, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                     .frame(width: 72, height: 72)
                     .rotationEffect(.degrees(-90))
@@ -326,23 +356,39 @@ struct CircularGaugeView: View {
 
                 // Inner ring - 7d remaining
                 Circle()
-                    .trim(from: 0, to: CGFloat(sevenDayRemaining))
+                    .trim(from: 0, to: CGFloat(animatedSevenDay))
                     .stroke(service.brandColor.opacity(0.5), style: StrokeStyle(lineWidth: 4, lineCap: .round))
                     .frame(width: 54, height: 54)
                     .rotationEffect(.degrees(-90))
 
                 // Center text
                 VStack(spacing: -2) {
-                    Text("\(Int(fiveHourRemaining * 100))")
+                    Text("\(Int(animatedFiveHour * 100))")
                         .font(.system(size: 22, weight: .bold, design: .rounded))
-                    Text("\(Int(sevenDayRemaining * 100))")
+                        .contentTransition(.numericText())
+                    Text("\(Int(animatedSevenDay * 100))")
                         .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
                 }
             }
 
             Text(service.name)
                 .font(.system(size: 13, weight: .medium))
+        }
+        .onAppear {
+            animatedFiveHour = fiveHourRemaining
+            animatedSevenDay = sevenDayRemaining
+        }
+        .onChange(of: fiveHourRemaining) { _, newValue in
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.75)) {
+                animatedFiveHour = newValue
+            }
+        }
+        .onChange(of: sevenDayRemaining) { _, newValue in
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.75)) {
+                animatedSevenDay = newValue
+            }
         }
     }
 
@@ -391,7 +437,7 @@ struct DetailCard: View {
                 UsageBar(
                     label: "5h",
                     percentage: max(0, 100 - (service.fiveHourUsage ?? service.usagePercentage)),
-                    resetText: formatReset(service.resetDate),
+                    resetText: fiveHourResetText,
                     color: service.brandColor
                 )
 
@@ -427,6 +473,14 @@ struct DetailCard: View {
         return service.tier.components(separatedBy: "_").last?.capitalized ?? service.tier
     }
 
+    private var fiveHourResetText: String? {
+        let usage = service.fiveHourUsage ?? service.usagePercentage
+        if usage < 1 {
+            return L.resetOnUse
+        }
+        return formatReset(service.resetDate)
+    }
+
     private func formatReset(_ date: Date?) -> String? {
         guard let date = date else { return nil }
         let interval = date.timeIntervalSinceNow
@@ -459,6 +513,8 @@ struct UsageBar: View {
     let percentage: Double
     let resetText: String?
     let color: Color
+    
+    @State private var animatedPercentage: Double = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -468,8 +524,9 @@ struct UsageBar: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text("\(Int(percentage))%")
+                Text("\(Int(animatedPercentage))%")
                     .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .contentTransition(.numericText())
             }
 
             // Progress bar
@@ -481,7 +538,7 @@ struct UsageBar: View {
 
                     RoundedRectangle(cornerRadius: 3)
                         .fill(color)
-                        .frame(width: geo.size.width * CGFloat(percentage) / 100, height: 7)
+                        .frame(width: geo.size.width * CGFloat(animatedPercentage) / 100, height: 7)
                 }
             }
             .frame(height: 7)
@@ -494,5 +551,77 @@ struct UsageBar: View {
             }
         }
         .frame(maxWidth: .infinity)
+        .onAppear {
+            animatedPercentage = percentage
+        }
+        .onChange(of: percentage) { _, newValue in
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.75)) {
+                animatedPercentage = newValue
+            }
+        }
+    }
+}
+
+struct UpdateSection: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L.update)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Text("v\(currentVersion)")
+                    .font(.subheadline)
+
+                Spacer()
+
+                Button {
+                    Task { await Updater.shared.checkForUpdates(force: true) }
+                } label: {
+                    Text(L.checkUpdate)
+                        .font(.subheadline)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    private var currentVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
+    }
+}
+
+struct BrandedCheckboxToggleStyle: ToggleStyle {
+    let tint: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.88)) {
+                configuration.isOn.toggle()
+            }
+        } label: {
+            HStack {
+                configuration.label
+                Spacer()
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(configuration.isOn ? tint : Color.primary.opacity(0.06))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(Color.primary.opacity(configuration.isOn ? 0.0 : 0.18), lineWidth: 1)
+                        }
+                        .frame(width: 22, height: 22)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                        .opacity(configuration.isOn ? 1 : 0)
+                        .scaleEffect(configuration.isOn ? 1 : 0.6)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

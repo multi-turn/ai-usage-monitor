@@ -327,6 +327,21 @@ class LocalizationManager {
         }
     }
 
+    var resetOnUse: String {
+        switch currentLanguage {
+        case .english: return "resets 5h after use"
+        case .korean: return "사용 시 5시간 후 재설정"
+        case .japanese: return "使用後5時間でリセット"
+        case .chinese: return "使用后5小时重置"
+        case .spanish: return "reinicia 5h después de usar"
+        case .french: return "réinitialise 5h après utilisation"
+        case .german: return "Reset 5h nach Nutzung"
+        case .portuguese: return "reinicia 5h após uso"
+        case .russian: return "сброс через 5ч после использования"
+        case .italian: return "reset 5h dopo l'uso"
+        }
+    }
+
     var hours24: String {
         switch currentLanguage {
         case .english: return "24h"
@@ -354,6 +369,81 @@ class LocalizationManager {
         case .portuguese: return "7d"
         case .russian: return "7д"
         case .italian: return "7g"
+        }
+    }
+
+    var update: String {
+        switch currentLanguage {
+        case .english: return "Update"
+        case .korean: return "업데이트"
+        case .japanese: return "アップデート"
+        case .chinese: return "更新"
+        case .spanish: return "Actualización"
+        case .french: return "Mise à jour"
+        case .german: return "Aktualisierung"
+        case .portuguese: return "Atualização"
+        case .russian: return "Обновление"
+        case .italian: return "Aggiornamento"
+        }
+    }
+
+    var available: String {
+        switch currentLanguage {
+        case .english: return "available"
+        case .korean: return "사용 가능"
+        case .japanese: return "利用可能"
+        case .chinese: return "可用"
+        case .spanish: return "disponible"
+        case .french: return "disponible"
+        case .german: return "verfügbar"
+        case .portuguese: return "disponível"
+        case .russian: return "доступно"
+        case .italian: return "disponibile"
+        }
+    }
+
+    var checking: String {
+        switch currentLanguage {
+        case .english: return "Checking..."
+        case .korean: return "확인 중..."
+        case .japanese: return "確認中..."
+        case .chinese: return "检查中..."
+        case .spanish: return "Comprobando..."
+        case .french: return "Vérification..."
+        case .german: return "Prüfen..."
+        case .portuguese: return "Verificando..."
+        case .russian: return "Проверка..."
+        case .italian: return "Verifica..."
+        }
+    }
+
+    var updateNow: String {
+        switch currentLanguage {
+        case .english: return "Update"
+        case .korean: return "업데이트"
+        case .japanese: return "更新"
+        case .chinese: return "更新"
+        case .spanish: return "Actualizar"
+        case .french: return "Mettre à jour"
+        case .german: return "Aktualisieren"
+        case .portuguese: return "Atualizar"
+        case .russian: return "Обновить"
+        case .italian: return "Aggiorna"
+        }
+    }
+
+    var checkUpdate: String {
+        switch currentLanguage {
+        case .english: return "Check"
+        case .korean: return "확인"
+        case .japanese: return "確認"
+        case .chinese: return "检查"
+        case .spanish: return "Comprobar"
+        case .french: return "Vérifier"
+        case .german: return "Prüfen"
+        case .portuguese: return "Verificar"
+        case .russian: return "Проверить"
+        case .italian: return "Verifica"
         }
     }
 }

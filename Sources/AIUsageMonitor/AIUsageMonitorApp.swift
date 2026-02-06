@@ -80,11 +80,11 @@ struct MenuBarLabel: View {
         // Bar height based on 7-day remaining (minimum 20% height for visibility)
         let barHeight = maxBarHeight * max(0.2, CGFloat(sevenDayRemaining))
 
-        // Draw single outer frame (rounded)
         let frameRect = NSRect(x: x + 1, y: barY - 1, width: barAreaWidth + 2, height: maxBarHeight + 2)
         let framePath = NSBezierPath(roundedRect: frameRect, xRadius: 2, yRadius: 2)
-        NSColor.white.withAlphaComponent(0.2).setFill()
-        framePath.fill()
+        NSColor.white.setStroke()
+        framePath.lineWidth = 0.5
+        framePath.stroke()
 
         for i in 0..<barCount {
             let barX = x + 2 + CGFloat(i) * (barWidth + 1)

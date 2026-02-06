@@ -1,15 +1,16 @@
 import Foundation
 import Security
 
+
 class KeychainManager {
     static let shared = KeychainManager()
     private let serviceName = "com.aiusagemonitor"
 
-    // Cache for Claude Code credentials to avoid multiple Keychain prompts
+    // Cache for Claude Code credentials to avoid repeated Keychain prompts.
+    // Stored in-memory for the app session and updated on refresh.
     private var cachedClaudeCredentials: ClaudeCodeCredentials?
-    private var credentialsCacheTime: Date?
-    private let cacheValidityDuration: TimeInterval = 300  // 5 minutes
-
+    private var didAttemptClaudeCredentialsLookup: Bool = false
+ 
     private init() {}
 
     func save(_ value: String, for key: String) throws {
@@ -83,22 +84,26 @@ class KeychainManager {
     /// Reads Claude Code OAuth credentials from system Keychain
     /// Uses single query + caching to minimize Keychain access prompts
     func getClaudeCodeCredentials() -> ClaudeCodeCredentials? {
-        // Return cached credentials if still valid
-        if let cached = cachedClaudeCredentials,
-           let cacheTime = credentialsCacheTime,
-           Date().timeIntervalSince(cacheTime) < cacheValidityDuration,
-           !cached.isExpired {
+        // Return cached credentials if available (avoid repeated Keychain prompts)
+        if let cached = cachedClaudeCredentials {
             return cached
         }
 
-        // Single Keychain query to get all Claude Code credentials at once
-        let credentials = getAllClaudeCodeCredentials()
+        // If the user denied Keychain access (or the lookup failed), don't keep re-prompting.
+        if didAttemptClaudeCredentialsLookup {
+            return nil
+        }
+        didAttemptClaudeCredentialsLookup = true
+        var records = getAllClaudeCodeCredentialRecords(includingDiscoveredServices: false)
+        if records.isEmpty {
+            records = getAllClaudeCodeCredentialRecords(includingDiscoveredServices: true)
+        }
 
-        // Find the best (non-expired, latest expiry) credential
-        var bestCredentials: ClaudeCodeCredentials? = nil
+        var bestCredentials: ClaudeCodeCredentials?
         var bestExpiresAt: Int64 = 0
 
-        for creds in credentials {
+        for record in records {
+            let creds = record.credentials
             let expiresAt = creds.expiresAtMs ?? 0
             if !creds.isExpired && expiresAt > bestExpiresAt {
                 bestCredentials = creds
@@ -111,38 +116,113 @@ class KeychainManager {
 
         // Cache the result
         cachedClaudeCredentials = bestCredentials
-        credentialsCacheTime = Date()
-
         return bestCredentials
     }
 
     /// Clears the cached credentials (call after token refresh)
     func clearCredentialsCache() {
         cachedClaudeCredentials = nil
-        credentialsCacheTime = nil
+        didAttemptClaudeCredentialsLookup = false
     }
 
-    /// Single Keychain query for Claude Code credentials
-    private func getAllClaudeCodeCredentials() -> [ClaudeCodeCredentials] {
-        // Query specifically for "Claude Code-credentials" service
-        // This makes only ONE Keychain access with minimal permissions
+    private struct ClaudeCodeCredentialsRecord {
+        let service: String
+        let account: String
+        let credentials: ClaudeCodeCredentials
+    }
+
+    private func getAllClaudeCodeCredentialRecords(includingDiscoveredServices: Bool) -> [ClaudeCodeCredentialsRecord] {
+        let baseService = "Claude Code-credentials"
+        var services: Set<String> = [baseService]
+
+        if includingDiscoveredServices {
+            services.formUnion(discoverClaudeCodeCredentialServices())
+        }
+
+        var records: [ClaudeCodeCredentialsRecord] = []
+        for service in services.sorted() {
+            records.append(contentsOf: fetchClaudeCodeCredentialRecords(service: service))
+        }
+
+        return records
+    }
+
+    private func discoverClaudeCodeCredentialServices() -> Set<String> {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "Claude Code-credentials",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll
         ]
 
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
-        guard status == errSecSuccess,
-              let data = result as? Data,
-              let creds = parseCredentials(from: data) else {
+        guard status == errSecSuccess else {
             return []
         }
 
-        return [creds]
+        let items = result as? [[String: Any]] ?? []
+        let services = items.compactMap { $0[kSecAttrService as String] as? String }
+            .filter { $0.hasPrefix("Claude Code-credentials") }
+
+        return Set(services)
+    }
+
+    private func fetchClaudeCodeCredentialRecords(service: String) -> [ClaudeCodeCredentialsRecord] {
+        let attrsQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll
+        ]
+
+        var attrsResult: AnyObject?
+        let attrsStatus = SecItemCopyMatching(attrsQuery as CFDictionary, &attrsResult)
+
+
+        guard attrsStatus == errSecSuccess else {
+            if attrsStatus != errSecItemNotFound {
+            }
+            return []
+        }
+
+        let attrItems: [[String: Any]]
+        if let array = attrsResult as? [[String: Any]] {
+            attrItems = array
+        } else if let dict = attrsResult as? [String: Any] {
+            attrItems = [dict]
+        } else {
+            attrItems = []
+        }
+
+        var records: [ClaudeCodeCredentialsRecord] = []
+
+        for item in attrItems {
+            guard let account = item[kSecAttrAccount as String] as? String else {
+                continue
+            }
+
+            let dataQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
+                kSecReturnData as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne
+            ]
+
+            var dataResult: AnyObject?
+            let dataStatus = SecItemCopyMatching(dataQuery as CFDictionary, &dataResult)
+
+            guard dataStatus == errSecSuccess,
+                  let data = dataResult as? Data,
+                  let creds = parseCredentials(from: data) else {
+                continue
+            }
+
+            records.append(ClaudeCodeCredentialsRecord(service: service, account: account, credentials: creds))
+        }
+
+        return records
     }
 
     private func parseCredentials(from data: Data) -> ClaudeCodeCredentials? {
@@ -164,20 +244,29 @@ struct ClaudeCodeCredentialsWrapper: Codable {
 struct ClaudeCodeCredentials: Codable {
     let accessToken: String
     let refreshToken: String?
-    let expiresAtMs: Int64?  // Milliseconds since epoch
+    let expiresAtMs: Int64?  // Seconds or milliseconds since epoch
     let idToken: String?
     let rateLimitTier: String?
+    let subscriptionType: String?
+    let scopes: [String]?
 
     enum CodingKeys: String, CodingKey {
-        case accessToken      // JSON uses camelCase: "accessToken"
-        case refreshToken     // JSON uses camelCase: "refreshToken"
-        case expiresAtMs = "expiresAt"  // JSON key is "expiresAt"
-        case idToken          // JSON uses camelCase: "idToken"
-        case rateLimitTier    // JSON uses camelCase: "rateLimitTier"
+        case accessToken
+        case refreshToken
+        case expiresAtMs = "expiresAt"
+        case idToken
+        case rateLimitTier
+        case subscriptionType
+        case scopes
+    }
+
+    private var expiresAtEpochMilliseconds: Int64? {
+        guard let value = expiresAtMs else { return nil }
+        return value < 10_000_000_000 ? value * 1000 : value
     }
 
     var expiresAt: Date? {
-        guard let ms = expiresAtMs else { return nil }
+        guard let ms = expiresAtEpochMilliseconds else { return nil }
         return Date(timeIntervalSince1970: Double(ms) / 1000.0)
     }
 
@@ -198,71 +287,121 @@ struct ClaudeCodeCredentials: Codable {
 extension KeychainManager {
     /// Attempts to refresh the Claude Code OAuth token using the refresh token
     func refreshClaudeCodeToken() async throws -> ClaudeCodeCredentials {
-        guard let credentials = getClaudeCodeCredentials() else {
+        let cachedAccessToken = cachedClaudeCredentials?.accessToken
+
+        var records = getAllClaudeCodeCredentialRecords(includingDiscoveredServices: false)
+        var usedDiscovery = false
+        if records.isEmpty {
+            records = getAllClaudeCodeCredentialRecords(includingDiscoveredServices: true)
+            usedDiscovery = true
+        }
+
+        guard !records.isEmpty else {
             throw TokenRefreshError.noCredentials
         }
 
-        guard let refreshToken = credentials.refreshToken else {
+        var seenRefreshToken = false
+        var lastError: Error?
+        var attempted = Set<String>()
+
+        func attemptRefresh(from records: [ClaudeCodeCredentialsRecord]) async -> ClaudeCodeCredentials? {
+            let orderedRecords = records.sorted {
+                let aIsCached = $0.credentials.accessToken == cachedAccessToken
+                let bIsCached = $1.credentials.accessToken == cachedAccessToken
+                if aIsCached != bIsCached { return aIsCached }
+
+                let aExpiresAt = $0.credentials.expiresAtMs ?? 0
+                let bExpiresAt = $1.credentials.expiresAtMs ?? 0
+                return aExpiresAt > bExpiresAt
+            }
+
+            for record in orderedRecords {
+                let key = "\(record.service)|\(record.account)"
+                guard attempted.insert(key).inserted else { continue }
+
+                guard let refreshToken = record.credentials.refreshToken else {
+                    continue
+                }
+                seenRefreshToken = true
+
+                let tokenURL = URL(string: "https://console.anthropic.com/v1/oauth/token")!
+
+                var request = URLRequest(url: tokenURL)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+                let scopes = record.credentials.scopes?.joined(separator: " ") ?? "user:inference user:profile user:sessions:claude_code"
+                let body: [String: Any] = [
+                    "grant_type": "refresh_token",
+                    "refresh_token": refreshToken,
+                    "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+                    "scope": scopes
+                ]
+
+                request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+                do {
+                    let (data, response) = try await URLSession.shared.data(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        throw TokenRefreshError.invalidResponse
+                    }
+
+                    guard httpResponse.statusCode == 200 else {
+                        let message = String(data: data, encoding: .utf8) ?? "Unknown error"
+                        throw TokenRefreshError.refreshFailed(httpResponse.statusCode, message)
+                    }
+
+                    let decoder = JSONDecoder()
+                    let tokenResponse = try decoder.decode(TokenRefreshResponse.self, from: data)
+
+                    let newCredentials = ClaudeCodeCredentials(
+                        accessToken: tokenResponse.accessToken,
+                        refreshToken: tokenResponse.refreshToken ?? refreshToken,
+                        expiresAtMs: Int64(Date().timeIntervalSince1970 * 1000) + Int64(tokenResponse.expiresIn * 1000),
+                        idToken: tokenResponse.idToken,
+                        rateLimitTier: record.credentials.rateLimitTier,
+                        subscriptionType: record.credentials.subscriptionType,
+                        scopes: record.credentials.scopes
+                    )
+
+                    try updateClaudeCodeCredentials(newCredentials, service: record.service, account: record.account)
+                    cachedClaudeCredentials = newCredentials
+                    return newCredentials
+                } catch {
+                    lastError = error
+                }
+            }
+
+            return nil
+        }
+
+        if let refreshed = await attemptRefresh(from: records) {
+            return refreshed
+        }
+
+        if !usedDiscovery {
+            let allRecords = getAllClaudeCodeCredentialRecords(includingDiscoveredServices: true)
+            if let refreshed = await attemptRefresh(from: allRecords) {
+                return refreshed
+            }
+        }
+
+        if !seenRefreshToken {
             throw TokenRefreshError.noRefreshToken
         }
 
-        let tokenURL = URL(string: "https://console.anthropic.com/v1/oauth/token")!
-
-        var request = URLRequest(url: tokenURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let body: [String: Any] = [
-            "grant_type": "refresh_token",
-            "refresh_token": refreshToken,
-            "client_id": "claude-code"
-        ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw TokenRefreshError.invalidResponse
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            let message = String(data: data, encoding: .utf8) ?? "Unknown error"
-            print("❌ Token refresh failed: \(httpResponse.statusCode) - \(message)")
-            throw TokenRefreshError.refreshFailed(httpResponse.statusCode, message)
-        }
-
-        // Parse the new token response
-        let decoder = JSONDecoder()
-        let tokenResponse = try decoder.decode(TokenRefreshResponse.self, from: data)
-
-        // Update Keychain with new credentials
-        let newCredentials = ClaudeCodeCredentials(
-            accessToken: tokenResponse.accessToken,
-            refreshToken: tokenResponse.refreshToken ?? refreshToken,
-            expiresAtMs: Int64(Date().timeIntervalSince1970 * 1000) + Int64(tokenResponse.expiresIn * 1000),
-            idToken: tokenResponse.idToken,
-            rateLimitTier: credentials.rateLimitTier
-        )
-
-        try updateClaudeCodeCredentials(newCredentials)
-
-        // Update cache with new credentials
-        cachedClaudeCredentials = newCredentials
-        credentialsCacheTime = Date()
-
-        print("✅ Token refreshed successfully")
-        return newCredentials
+        throw lastError ?? TokenRefreshError.invalidResponse
     }
 
-    /// Updates Claude Code credentials in Keychain
-    private func updateClaudeCodeCredentials(_ credentials: ClaudeCodeCredentials) throws {
+    private func updateClaudeCodeCredentials(_ credentials: ClaudeCodeCredentials, service: String, account: String) throws {
         let wrapper = ClaudeCodeCredentialsWrapper(claudeAiOauth: credentials)
         let data = try JSONEncoder().encode(wrapper)
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "Claude Code-credentials"
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
         ]
 
         let attributes: [String: Any] = [
@@ -272,7 +411,6 @@ extension KeychainManager {
         let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
 
         if status == errSecItemNotFound {
-            // Item doesn't exist, create it
             var newQuery = query
             newQuery[kSecValueData as String] = data
             let addStatus = SecItemAdd(newQuery as CFDictionary, nil)

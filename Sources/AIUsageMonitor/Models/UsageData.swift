@@ -47,21 +47,20 @@ struct UsageData: Codable, Equatable {
 
     static func placeholder(for type: ServiceType) -> UsageData {
         let now = Date()
-        let endOfMonth = Calendar.current.date(byAdding: .month, value: 1, to: now) ?? now
 
         return UsageData(
-            tokensUsed: Int64.random(in: 10000...500000),
-            tokensLimit: 1_000_000,
+            tokensUsed: 0,
+            tokensLimit: 0,
             inputTokens: nil,
             outputTokens: nil,
             periodStart: now,
-            periodEnd: endOfMonth,
-            resetDate: endOfMonth,
+            periodEnd: now,
+            resetDate: nil,
             sevenDayResetDate: nil,
-            currentCost: Decimal(Double.random(in: 5...50)),
-            projectedCost: Decimal(Double.random(in: 10...100)),
+            currentCost: nil,
+            projectedCost: nil,
             currency: "USD",
-            tier: "Free Tier",
+            tier: "Loading",
             lastUpdated: now,
             fiveHourUsage: nil,
             sevenDayUsage: nil
