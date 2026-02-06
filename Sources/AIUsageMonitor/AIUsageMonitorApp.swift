@@ -61,7 +61,12 @@ struct MenuBarLabel: View {
         let sevenDayRemaining = max(0, 100.0 - (service.sevenDayUsage ?? service.usagePercentage)) / 100.0
 
         // Draw label
-        let label = service.config.serviceType == .claude ? "Claude" : "Codex"
+        let label: String
+        switch service.config.serviceType {
+        case .claude: label = "Claude"
+        case .codex: label = "Codex"
+        case .gemini: label = "Gemini"
+        }
         let labelAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 8, weight: .medium),
             .foregroundColor: NSColor.white.withAlphaComponent(0.9)
@@ -106,8 +111,9 @@ struct MenuBarLabel: View {
 
     private func serviceColor(for service: ServiceViewModel) -> NSColor {
         switch service.config.serviceType {
-        case .claude: return NSColor(red: 0.9, green: 0.5, blue: 0.2, alpha: 1.0)   // Orange
-        case .codex: return NSColor(red: 0.1, green: 0.7, blue: 0.55, alpha: 1.0)  // Teal
+        case .claude: return NSColor(red: 0.9, green: 0.5, blue: 0.2, alpha: 1.0)
+        case .codex: return NSColor(red: 0.1, green: 0.7, blue: 0.55, alpha: 1.0)
+        case .gemini: return NSColor(red: 0.26, green: 0.52, blue: 0.96, alpha: 1.0)
         }
     }
 }

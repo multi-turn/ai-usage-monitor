@@ -194,6 +194,8 @@ class AppState {
             return AnthropicClient(config: config)
         case .codex:
             return CodexClient(config: config)
+        case .gemini:
+            return GeminiClient(config: config)
         }
     }
 }

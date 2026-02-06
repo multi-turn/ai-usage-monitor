@@ -51,6 +51,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
     <true/>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
+    <key>SUFeedURL</key>
+    <string>https://github.com/multi-turn/ai-usage-monitor/releases/latest/download/appcast.xml</string>
 </dict>
 </plist>
 EOF

@@ -35,12 +35,19 @@ struct CombinedUsageHistoryView: View {
             }
         }
         .padding()
-        .background(Color.gray.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(ThemeManager.shared.current.border, lineWidth: 0.5)
+        )
     }
 
     private func colorFor(_ type: ServiceType) -> Color {
-        type == .claude ? Color(hex: "#D97706") ?? .orange : Color(hex: "#10A37F") ?? .green
+        type.brandColor
     }
 }
 
@@ -107,7 +114,7 @@ struct CombinedHourlyChartView: View {
     }
 
     private func colorFor(_ type: ServiceType) -> Color {
-        type == .claude ? Color(hex: "#D97706") ?? .orange : Color(hex: "#10A37F") ?? .green
+        type.brandColor
     }
 }
 
@@ -172,7 +179,7 @@ struct CombinedDailyChartView: View {
     }
 
     private func colorFor(_ type: ServiceType) -> Color {
-        type == .claude ? Color(hex: "#D97706") ?? .orange : Color(hex: "#10A37F") ?? .green
+        type.brandColor
     }
 
     private func dayLabel(_ date: Date) -> String {

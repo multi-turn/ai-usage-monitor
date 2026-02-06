@@ -237,6 +237,21 @@ class LocalizationManager {
         }
     }
 
+    var theme: String {
+        switch currentLanguage {
+        case .english: return "Theme"
+        case .korean: return "테마"
+        case .japanese: return "テーマ"
+        case .chinese: return "主题"
+        case .spanish: return "Tema"
+        case .french: return "Thème"
+        case .german: return "Thema"
+        case .portuguese: return "Tema"
+        case .russian: return "Тема"
+        case .italian: return "Tema"
+        }
+    }
+
     var launchAtLogin: String {
         switch currentLanguage {
         case .english: return "Launch at Login"

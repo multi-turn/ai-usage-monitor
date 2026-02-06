@@ -16,6 +16,8 @@ struct ContentView: View {
             }
         }
         .frame(width: 300)
+        .background(ThemeManager.shared.current.background)
+        .preferredColorScheme(ThemeManager.shared.effectiveMode == .dark ? .dark : .light)
         .animation(nil, value: showSettings)
         .onAppear {
             if showSettings,
@@ -199,6 +201,17 @@ struct SettingsPanel: View {
                             }
                         }
                         .toggleStyle(BrandedCheckboxToggleStyle(tint: Color(hex: "#10A37F") ?? .green))
+
+                        Toggle(isOn: geminiEnabledBinding) {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(Color(hex: "#4285F4") ?? .blue)
+                                    .frame(width: 10, height: 10)
+                                Text("Gemini")
+                                    .font(.subheadline)
+                            }
+                        }
+                        .toggleStyle(BrandedCheckboxToggleStyle(tint: Color(hex: "#4285F4") ?? .blue))
                     }
                     .padding(.horizontal)
 
@@ -231,6 +244,21 @@ struct SettingsPanel: View {
                                 Text("5m").tag(TimeInterval(300))
                                 Text("15m").tag(TimeInterval(900))
                                 Text("30m").tag(TimeInterval(1800))
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(L.theme)
+                                .font(.subheadline)
+
+                            Picker("", selection: Binding(
+                                get: { ThemeManager.shared.mode },
+                                set: { ThemeManager.shared.mode = $0 }
+                            )) {
+                                ForEach(ThemeMode.allCases, id: \.self) { mode in
+                                    Text(mode.displayName).tag(mode)
+                                }
                             }
                             .pickerStyle(.segmented)
                         }
@@ -306,6 +334,17 @@ struct SettingsPanel: View {
             get: { appState.services.first { $0.config.serviceType == .codex }?.config.isEnabled ?? true },
             set: { newValue in
                 if let idx = appState.services.firstIndex(where: { $0.config.serviceType == .codex }) {
+                    appState.services[idx].config.isEnabled = newValue
+                }
+            }
+        )
+    }
+
+    private var geminiEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { appState.services.first { $0.config.serviceType == .gemini }?.config.isEnabled ?? true },
+            set: { newValue in
+                if let idx = appState.services.firstIndex(where: { $0.config.serviceType == .gemini }) {
                     appState.services[idx].config.isEnabled = newValue
                 }
             }
@@ -453,8 +492,15 @@ struct DetailCard: View {
             }
         }
         .padding(12)
-        .background(Color.gray.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(ThemeManager.shared.current.border, lineWidth: 0.5)
+        )
     }
 
     private var formattedPlan: String {
@@ -577,7 +623,7 @@ struct UpdateSection: View {
                 Spacer()
 
                 Button {
-                    Task { await Updater.shared.checkForUpdates(force: true) }
+                    Updater.shared.checkForUpdates()
                 } label: {
                     Text(L.checkUpdate)
                         .font(.subheadline)

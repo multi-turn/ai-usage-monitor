@@ -12,12 +12,19 @@ let package = Package(
             targets: ["AIUsageMonitor"]
         )
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.8.1"),
+    ],
     targets: [
         .executableTarget(
             name: "AIUsageMonitor",
-            dependencies: [],
-            path: "Sources/AIUsageMonitor"
+            dependencies: [
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
+            path: "Sources/AIUsageMonitor",
+            swiftSettings: [
+                .define("ENABLE_SPARKLE"),
+            ]
         )
     ]
 )
