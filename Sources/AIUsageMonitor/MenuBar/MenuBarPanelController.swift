@@ -10,6 +10,7 @@ final class MenuBarPanelController: NSObject, NSWindowDelegate {
 
     private var localEventMonitor: EventMonitor?
     private var globalEventMonitor: EventMonitor?
+    private var appearanceObservation: NSKeyValueObservation?
 
     init(title: String, appState: AppState, themeManager: ThemeManager) {
         self.appState = appState
@@ -43,6 +44,12 @@ final class MenuBarPanelController: NSObject, NSWindowDelegate {
             guard let self else { return }
             if self.window.isKeyWindow {
                 self.window.resignKey()
+            }
+        }
+
+        appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
+            Task { @MainActor in
+                self?.updateStatusItemImage()
             }
         }
 

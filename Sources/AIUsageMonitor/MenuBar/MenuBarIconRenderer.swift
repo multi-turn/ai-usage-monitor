@@ -3,6 +3,15 @@ import SwiftUI
 
 @MainActor
 enum MenuBarIconRenderer {
+
+    private static var isDarkMode: Bool {
+        let appearance = NSApp.effectiveAppearance
+        switch appearance.bestMatch(from: [.darkAqua, .aqua]) {
+        case .darkAqua: return true
+        default: return false
+        }
+    }
+
     static func render(appState: AppState, themeManager: ThemeManager) -> NSImage {
         let services = appState.services.filter { $0.config.isEnabled }
         guard !services.isEmpty else {
@@ -18,9 +27,11 @@ enum MenuBarIconRenderer {
         image.lockFocus()
         defer { image.unlockFocus() }
 
+        let dark = isDarkMode
+
         var x: CGFloat = 0
         for service in services {
-            drawStatsStyleMeter(at: x, service: service, themeManager: themeManager, width: serviceWidth, height: height)
+            drawStatsStyleMeter(at: x, service: service, dark: dark, width: serviceWidth, height: height)
             x += serviceWidth + spacing
         }
 
@@ -31,12 +42,14 @@ enum MenuBarIconRenderer {
     private static func drawStatsStyleMeter(
         at x: CGFloat,
         service: ServiceViewModel,
-        themeManager: ThemeManager,
+        dark: Bool,
         width: CGFloat,
         height: CGFloat
     ) {
         let color = service.config.serviceType.brandColor.nsColor
-        let chrome = themeManager.current.menuBar
+        let labelColor = dark ? NSColor.white.withAlphaComponent(0.90) : NSColor.black.withAlphaComponent(0.78)
+        let borderColor = dark ? NSColor.white.withAlphaComponent(0.55) : NSColor.black.withAlphaComponent(0.35)
+        let emptyBarColor = dark ? NSColor.white.withAlphaComponent(0.10) : NSColor.black.withAlphaComponent(0.08)
 
         let fiveHourRemaining = max(0, 100.0 - (service.fiveHourUsage ?? service.usagePercentage)) / 100.0
         let sevenDayRemaining = max(0, 100.0 - (service.sevenDayUsage ?? service.usagePercentage)) / 100.0
@@ -50,7 +63,7 @@ enum MenuBarIconRenderer {
 
         let labelAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 8, weight: .medium),
-            .foregroundColor: chrome.label,
+            .foregroundColor: labelColor,
         ]
 
         let labelSize = label.size(withAttributes: labelAttrs)
@@ -67,7 +80,7 @@ enum MenuBarIconRenderer {
 
         let frameRect = NSRect(x: x + 1, y: barY - 1, width: barAreaWidth + 2, height: maxBarHeight + 2)
         let framePath = NSBezierPath(roundedRect: frameRect, xRadius: 2, yRadius: 2)
-        chrome.border.withAlphaComponent(min(chrome.border.alphaComponent * 2.5, 0.85)).setStroke()
+        borderColor.setStroke()
         framePath.lineWidth = 0.75
         framePath.stroke()
 
@@ -81,7 +94,7 @@ enum MenuBarIconRenderer {
             if shouldFill {
                 color.setFill()
             } else {
-                chrome.emptyBar.setFill()
+                emptyBarColor.setFill()
             }
 
             NSBezierPath(rect: fillRect).fill()
