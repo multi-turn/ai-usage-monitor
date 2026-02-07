@@ -4,14 +4,6 @@ import SwiftUI
 @MainActor
 enum MenuBarIconRenderer {
 
-    private static var isDarkMode: Bool {
-        let appearance = NSApp.effectiveAppearance
-        switch appearance.bestMatch(from: [.darkAqua, .aqua]) {
-        case .darkAqua: return true
-        default: return false
-        }
-    }
-
     static func render(appState: AppState, themeManager: ThemeManager) -> NSImage {
         let services = appState.services.filter { $0.config.isEnabled }
         guard !services.isEmpty else {
@@ -23,39 +15,61 @@ enum MenuBarIconRenderer {
         let totalWidth = CGFloat(services.count) * serviceWidth + CGFloat(services.count - 1) * spacing
         let height: CGFloat = 22
 
-        let image = NSImage(size: NSSize(width: totalWidth, height: height))
-        image.lockFocus()
-        defer { image.unlockFocus() }
+        let snapshot = services.map { service -> ServiceSnapshot in
+            ServiceSnapshot(
+                brandColor: service.config.serviceType.brandColor.nsColor,
+                serviceType: service.config.serviceType,
+                fiveHourUsage: service.fiveHourUsage,
+                sevenDayUsage: service.sevenDayUsage,
+                usagePercentage: service.usagePercentage
+            )
+        }
 
-        let dark = isDarkMode
+        let image = NSImage(size: NSSize(width: totalWidth, height: height), flipped: false) { _ in
+            let dark: Bool = {
+                switch NSAppearance.current.bestMatch(from: [.darkAqua, .aqua]) {
+                case .darkAqua: return true
+                default: return false
+                }
+            }()
 
-        var x: CGFloat = 0
-        for service in services {
-            drawStatsStyleMeter(at: x, service: service, dark: dark, width: serviceWidth, height: height)
-            x += serviceWidth + spacing
+            var x: CGFloat = 0
+            for service in snapshot {
+                drawMeter(at: x, service: service, dark: dark, width: serviceWidth, height: height)
+                x += serviceWidth + spacing
+            }
+            return true
         }
 
         image.isTemplate = false
         return image
     }
 
-    private static func drawStatsStyleMeter(
+    private struct ServiceSnapshot {
+        let brandColor: NSColor
+        let serviceType: ServiceType
+        let fiveHourUsage: Double?
+        let sevenDayUsage: Double?
+        let usagePercentage: Double
+    }
+
+    private static func drawMeter(
         at x: CGFloat,
-        service: ServiceViewModel,
+        service: ServiceSnapshot,
         dark: Bool,
         width: CGFloat,
         height: CGFloat
     ) {
-        let color = service.config.serviceType.brandColor.nsColor
-        let labelColor = dark ? NSColor.white.withAlphaComponent(0.90) : NSColor.black.withAlphaComponent(0.78)
-        let borderColor = dark ? NSColor.white.withAlphaComponent(0.55) : NSColor.black.withAlphaComponent(0.35)
-        let emptyBarColor = dark ? NSColor.white.withAlphaComponent(0.10) : NSColor.black.withAlphaComponent(0.08)
+        let color = service.brandColor
+        let labelColor = dark ? NSColor.white : NSColor.black
+        let borderColor = dark ? NSColor.white.withAlphaComponent(0.55) : NSColor.black.withAlphaComponent(0.40)
+        let emptyBarColor = dark ? NSColor.white.withAlphaComponent(0.10) : NSColor.black.withAlphaComponent(0.10)
 
         let fiveHourRemaining = max(0, 100.0 - (service.fiveHourUsage ?? service.usagePercentage)) / 100.0
         let sevenDayRemaining = max(0, 100.0 - (service.sevenDayUsage ?? service.usagePercentage)) / 100.0
 
         let label: String
-        switch service.config.serviceType {
+        switch service.serviceType {
         case .claude: label = "Claude"
         case .codex: label = "Codex"
         case .gemini: label = "Gemini"
