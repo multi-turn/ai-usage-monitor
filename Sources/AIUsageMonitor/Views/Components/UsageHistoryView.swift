@@ -38,12 +38,11 @@ struct UsageHistoryView: View {
             }
         }
         .padding()
-        .background(Color.gray.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .premiumCard()
     }
 
     private var serviceColor: Color {
-        serviceType == .claude ? Color(hex: "#D97706") ?? .orange : Color(hex: "#10A37F") ?? .green
+        serviceType.brandColor
     }
 }
 
@@ -111,7 +110,7 @@ struct HourlyChartView: View {
     }
 
     private var serviceColor: Color {
-        serviceType == .claude ? Color(hex: "#D97706") ?? .orange : Color(hex: "#10A37F") ?? .green
+        serviceType.brandColor
     }
 }
 
@@ -151,11 +150,11 @@ struct DailyChartView: View {
                                     RoundedRectangle(cornerRadius: 2)
                                         .fill(serviceColor)
                                         .frame(width: barWidth, height: max(2, maxHeight * CGFloat(fiveHour) / 100))
-                                } else {
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(Color.gray.opacity(0.2))
-                                        .frame(width: barWidth, height: 2)
-                                }
+                                     } else {
+                                         RoundedRectangle(cornerRadius: 2)
+                                            .fill(ThemeManager.shared.current.trackSubtle)
+                                             .frame(width: barWidth, height: 2)
+                                     }
                             }
                         }
                     }
@@ -180,7 +179,7 @@ struct DailyChartView: View {
     }
 
     private var serviceColor: Color {
-        serviceType == .claude ? Color(hex: "#D97706") ?? .orange : Color(hex: "#10A37F") ?? .green
+        serviceType.brandColor
     }
 
     private func dayLabel(_ date: Date) -> String {

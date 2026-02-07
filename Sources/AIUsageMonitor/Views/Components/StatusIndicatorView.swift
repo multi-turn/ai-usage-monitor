@@ -22,12 +22,13 @@ enum ConnectionStatus {
     case checking
     case error
 
-    var color: Color {
+    @MainActor var color: Color {
+        let theme = ThemeManager.shared.current
         switch self {
-        case .connected: return .green
-        case .disconnected: return .gray
-        case .checking: return .orange
-        case .error: return .red
+        case .connected: return theme.statusSuccess
+        case .disconnected: return theme.statusNeutral
+        case .checking: return theme.statusWarning
+        case .error: return theme.statusDanger
         }
     }
 

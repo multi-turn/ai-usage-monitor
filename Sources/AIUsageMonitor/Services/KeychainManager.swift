@@ -101,16 +101,32 @@ class KeychainManager {
 
         var bestCredentials: ClaudeCodeCredentials?
         var bestExpiresAt: Int64 = 0
+        var bestHasProfileScope = false
 
         for record in records {
             let creds = record.credentials
             let expiresAt = creds.expiresAtMs ?? 0
-            if !creds.isExpired && expiresAt > bestExpiresAt {
-                bestCredentials = creds
-                bestExpiresAt = expiresAt
+            let hasProfile = creds.scopes?.contains("user:profile") ?? false
+
+            if !creds.isExpired {
+                let isBetter: Bool
+                if hasProfile && !bestHasProfileScope {
+                    isBetter = true
+                } else if hasProfile == bestHasProfileScope {
+                    isBetter = expiresAt > bestExpiresAt
+                } else {
+                    isBetter = false
+                }
+
+                if isBetter || bestCredentials == nil {
+                    bestCredentials = creds
+                    bestExpiresAt = expiresAt
+                    bestHasProfileScope = hasProfile
+                }
             } else if bestCredentials == nil {
                 bestCredentials = creds
                 bestExpiresAt = expiresAt
+                bestHasProfileScope = hasProfile
             }
         }
 
@@ -326,50 +342,60 @@ extension KeychainManager {
 
                 let tokenURL = URL(string: "https://console.anthropic.com/v1/oauth/token")!
 
-                var request = URLRequest(url: tokenURL)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                let fullScopes = "user:inference user:profile user:sessions:claude_code"
+                let existingScopes = record.credentials.scopes?.joined(separator: " ") ?? "user:inference"
+                let scopeCandidates = existingScopes != fullScopes ? [fullScopes, existingScopes] : [fullScopes]
 
-                let scopes = record.credentials.scopes?.joined(separator: " ") ?? "user:inference user:profile user:sessions:claude_code"
-                let body: [String: Any] = [
-                    "grant_type": "refresh_token",
-                    "refresh_token": refreshToken,
-                    "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
-                    "scope": scopes
-                ]
+                for scopes in scopeCandidates {
+                    var request = URLRequest(url: tokenURL)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-                request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+                    let body: [String: Any] = [
+                        "grant_type": "refresh_token",
+                        "refresh_token": refreshToken,
+                        "client_id": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+                        "scope": scopes
+                    ]
+                    request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-                do {
-                    let (data, response) = try await URLSession.shared.data(for: request)
+                    do {
+                        let (data, response) = try await URLSession.shared.data(for: request)
 
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        throw TokenRefreshError.invalidResponse
+                        guard let httpResponse = response as? HTTPURLResponse else {
+                            throw TokenRefreshError.invalidResponse
+                        }
+
+                        guard httpResponse.statusCode == 200 else {
+                            let message = String(data: data, encoding: .utf8) ?? "Unknown error"
+                            throw TokenRefreshError.refreshFailed(httpResponse.statusCode, message)
+                        }
+
+                        let decoder = JSONDecoder()
+                        let tokenResponse = try decoder.decode(TokenRefreshResponse.self, from: data)
+
+                        let grantedScopes = scopes.split(separator: " ").map(String.init)
+                        let newCredentials = ClaudeCodeCredentials(
+                            accessToken: tokenResponse.accessToken,
+                            refreshToken: tokenResponse.refreshToken ?? refreshToken,
+                            expiresAtMs: Int64(Date().timeIntervalSince1970 * 1000) + Int64(tokenResponse.expiresIn * 1000),
+                            idToken: tokenResponse.idToken,
+                            rateLimitTier: record.credentials.rateLimitTier,
+                            subscriptionType: record.credentials.subscriptionType,
+                            scopes: grantedScopes
+                        )
+
+                        try updateClaudeCodeCredentials(newCredentials, service: record.service, account: record.account)
+                        cachedClaudeCredentials = newCredentials
+                        return newCredentials
+                    } catch let error as TokenRefreshError {
+                        if case .refreshFailed(400, _) = error, scopes == fullScopes {
+                            continue
+                        }
+                        lastError = error
+                    } catch {
+                        lastError = error
                     }
-
-                    guard httpResponse.statusCode == 200 else {
-                        let message = String(data: data, encoding: .utf8) ?? "Unknown error"
-                        throw TokenRefreshError.refreshFailed(httpResponse.statusCode, message)
-                    }
-
-                    let decoder = JSONDecoder()
-                    let tokenResponse = try decoder.decode(TokenRefreshResponse.self, from: data)
-
-                    let newCredentials = ClaudeCodeCredentials(
-                        accessToken: tokenResponse.accessToken,
-                        refreshToken: tokenResponse.refreshToken ?? refreshToken,
-                        expiresAtMs: Int64(Date().timeIntervalSince1970 * 1000) + Int64(tokenResponse.expiresIn * 1000),
-                        idToken: tokenResponse.idToken,
-                        rateLimitTier: record.credentials.rateLimitTier,
-                        subscriptionType: record.credentials.subscriptionType,
-                        scopes: record.credentials.scopes
-                    )
-
-                    try updateClaudeCodeCredentials(newCredentials, service: record.service, account: record.account)
-                    cachedClaudeCredentials = newCredentials
-                    return newCredentials
-                } catch {
-                    lastError = error
                 }
             }
 

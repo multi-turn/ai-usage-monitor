@@ -11,7 +11,6 @@ struct CombinedUsageHistoryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Header
             HStack {
                 Text(L.usageHistory)
                     .font(.system(size: 13, weight: .medium))
@@ -19,12 +18,31 @@ struct CombinedUsageHistoryView: View {
 
                 Spacer()
 
-                Picker("", selection: $selectedPeriod) {
-                    Text(L.hours24).tag(Period.day)
-                    Text(L.days7).tag(Period.week)
+                HStack(spacing: 0) {
+                    ForEach(Period.allCases, id: \.self) { period in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedPeriod = period
+                            }
+                        } label: {
+                            Text(period == .day ? L.hours24 : L.days7)
+                                .font(.system(size: 11, weight: selectedPeriod == period ? .semibold : .regular))
+                                .foregroundStyle(selectedPeriod == period ? .primary : .tertiary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                        .fill(selectedPeriod == period ? Color(nsColor: .separatorColor).opacity(0.25) : .clear)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 110)
+                .padding(2)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(nsColor: .separatorColor).opacity(0.1))
+                )
             }
 
             // Chart
@@ -35,15 +53,7 @@ struct CombinedUsageHistoryView: View {
             }
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(ThemeManager.shared.current.border, lineWidth: 0.5)
-        )
+        .premiumCard()
     }
 
     private func colorFor(_ type: ServiceType) -> Color {
@@ -83,11 +93,11 @@ struct CombinedHourlyChartView: View {
                                         RoundedRectangle(cornerRadius: 1)
                                             .fill(colorFor(serviceData.serviceType))
                                             .frame(width: singleBarWidth, height: max(3, maxHeight * CGFloat(fiveHour) / 100))
-                                    } else {
-                                        RoundedRectangle(cornerRadius: 1)
-                                            .fill(Color.gray.opacity(0.15))
-                                            .frame(width: singleBarWidth, height: 2)
-                                    }
+                                     } else {
+                                         RoundedRectangle(cornerRadius: 1)
+                                            .fill(ThemeManager.shared.current.trackSubtle)
+                                             .frame(width: singleBarWidth, height: 2)
+                                     }
                                 }
                             }
                         }
@@ -150,11 +160,11 @@ struct CombinedDailyChartView: View {
                                         RoundedRectangle(cornerRadius: 2)
                                             .fill(colorFor(serviceData.serviceType))
                                             .frame(width: singleBarWidth, height: max(3, maxHeight * CGFloat(fiveHour) / 100))
-                                    } else {
-                                        RoundedRectangle(cornerRadius: 2)
-                                            .fill(Color.gray.opacity(0.15))
-                                            .frame(width: singleBarWidth, height: 2)
-                                    }
+                                     } else {
+                                         RoundedRectangle(cornerRadius: 2)
+                                            .fill(ThemeManager.shared.current.trackSubtle)
+                                             .frame(width: singleBarWidth, height: 2)
+                                     }
                                 }
                             }
                         }

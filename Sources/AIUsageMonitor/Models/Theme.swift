@@ -1,77 +1,120 @@
 import SwiftUI
+import AppKit
 
-enum ThemeMode: String, CaseIterable, Codable {
-    case system
-    case light
-    case dark
-
-    var displayName: String {
-        switch self {
-        case .system: return "System"
-        case .light: return "Light"
-        case .dark: return "Dark"
-        }
-    }
+struct MenuBarTheme {
+    let label: NSColor
+    let border: NSColor
+    let emptyBar: NSColor
 }
 
 struct AppTheme {
     let background: Color
-    let secondaryBackground: Color
-    let cardBackground: Color
-    let text: Color
-    let secondaryText: Color
     let border: Color
     let divider: Color
+    let track: Color
+    let trackSubtle: Color
+    let controlFill: Color
+    let controlStroke: Color
+    let shadow: Color
+    let statusSuccess: Color
+    let statusCaution: Color
+    let statusWarning: Color
+    let statusDanger: Color
+    let statusNeutral: Color
+    let glassTint: Color?
+    let menuBar: MenuBarTheme
 
-    static let dark = AppTheme(
-        background: Color(red: 0.08, green: 0.08, blue: 0.14),
-        secondaryBackground: Color(red: 0.12, green: 0.12, blue: 0.2),
-        cardBackground: Color.white.opacity(0.06),
-        text: .white,
-        secondaryText: Color.white.opacity(0.6),
-        border: Color.white.opacity(0.1),
-        divider: Color.white.opacity(0.08)
-    )
+    static func system(scheme: ColorScheme) -> AppTheme {
+        let background = Color(nsColor: .windowBackgroundColor)
+        let separator = Color(nsColor: .separatorColor)
+        let controlBg = Color(nsColor: .controlBackgroundColor)
 
-    static let light = AppTheme(
-        background: Color(red: 0.96, green: 0.96, blue: 0.98),
-        secondaryBackground: Color.white,
-        cardBackground: Color.white,
-        text: Color(red: 0.1, green: 0.1, blue: 0.15),
-        secondaryText: Color(red: 0.4, green: 0.4, blue: 0.45),
-        border: Color.black.opacity(0.08),
-        divider: Color.black.opacity(0.06)
-    )
-}
-
-@Observable
-class ThemeManager {
-    static let shared = ThemeManager()
-
-    var mode: ThemeMode {
-        didSet { save() }
+        return AppTheme(
+            background: background,
+            border: separator,
+            divider: separator,
+            track: separator.opacity(scheme == .dark ? 0.75 : 0.55),
+            trackSubtle: separator.opacity(scheme == .dark ? 0.45 : 0.35),
+            controlFill: controlBg.opacity(scheme == .dark ? 0.65 : 0.75),
+            controlStroke: separator.opacity(scheme == .dark ? 0.90 : 0.80),
+            shadow: Color.black.opacity(scheme == .dark ? 0.10 : 0.06),
+            statusSuccess: Color(nsColor: .systemGreen),
+            statusCaution: Color(nsColor: .systemYellow),
+            statusWarning: Color(nsColor: .systemOrange),
+            statusDanger: Color(nsColor: .systemRed),
+            statusNeutral: Color(nsColor: .secondaryLabelColor),
+            glassTint: nil,
+            menuBar: menuBarTheme(scheme: scheme)
+        )
     }
 
-    var current: AppTheme {
-        switch effectiveMode {
-        case .dark: return .dark
-        case .light: return .light
-        case .system: return .dark
+    private static func menuBarTheme(scheme: ColorScheme) -> MenuBarTheme {
+        switch scheme {
+        case .dark:
+            return MenuBarTheme(
+                label: NSColor.white.withAlphaComponent(0.90),
+                border: NSColor.white.withAlphaComponent(0.28),
+                emptyBar: NSColor.white.withAlphaComponent(0.08)
+            )
+        case .light:
+            return MenuBarTheme(
+                label: NSColor.black.withAlphaComponent(0.78),
+                border: NSColor.black.withAlphaComponent(0.16),
+                emptyBar: NSColor.black.withAlphaComponent(0.06)
+            )
+        @unknown default:
+            return MenuBarTheme(
+                label: NSColor.white.withAlphaComponent(0.90),
+                border: NSColor.white.withAlphaComponent(0.28),
+                emptyBar: NSColor.white.withAlphaComponent(0.08)
+            )
         }
     }
+}
 
-    var effectiveMode: ThemeMode {
-        guard mode == .system else { return mode }
-        let appearance = NSApp.effectiveAppearance
-        return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+extension View {
+    func premiumCard(cornerRadius: CGFloat = 16) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return self
+            .background(
+                shape.fill(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+            )
+            .overlay(
+                shape.stroke(Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 1)
+            )
+            .clipShape(shape)
+            .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
     }
 
-    private init() {
-        let saved = UserDefaults.standard.string(forKey: "themeMode") ?? "system"
-        self.mode = ThemeMode(rawValue: saved) ?? .system
+    func premiumPill(cornerRadius: CGFloat = 10) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return self
+            .background(
+                shape.fill(Color(nsColor: .controlBackgroundColor).opacity(0.4))
+            )
+            .overlay(
+                shape.stroke(Color(nsColor: .separatorColor).opacity(0.25), lineWidth: 0.5)
+            )
+            .clipShape(shape)
+    }
+}
+
+@MainActor
+@Observable
+final class ThemeManager {
+    static let shared = ThemeManager()
+
+    var current: AppTheme {
+        AppTheme.system(scheme: effectiveScheme)
     }
 
-    private func save() {
-        UserDefaults.standard.set(mode.rawValue, forKey: "themeMode")
+    var effectiveScheme: ColorScheme {
+        systemIsDark ? .dark : .light
     }
+
+    private var systemIsDark: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    private init() {}
 }

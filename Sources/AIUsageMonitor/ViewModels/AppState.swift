@@ -144,6 +144,10 @@ class AppState {
 
                 group.addTask {
                     do {
+                        if service.config.serviceType == .claude {
+                            KeychainManager.shared.clearCredentialsCache()
+                            ClaudeStatusProbe.shared.clearCache()
+                        }
                         let client = self.createAPIClient(for: service.config)
                         let usage = try await client.fetchUsage()
                         print("✅ \(serviceName): \(usage.usagePercentage)%")
@@ -168,9 +172,9 @@ class AppState {
                 switch result {
                 case .success(let usage):
                     services[index].usage = usage
+                    services[index].lastError = nil
                     print("📊 Updated \(serviceName): \(usage.usagePercentage)%")
 
-                    // Save to history
                     let historyEntry = UsageHistoryEntry(
                         serviceType: services[index].config.serviceType,
                         fiveHourUsage: usage.fiveHourUsage,
@@ -179,6 +183,7 @@ class AppState {
                     UsageHistoryStore.shared.saveEntry(historyEntry)
 
                 case .failure(let error):
+                    services[index].lastError = error.localizedDescription
                     errors.append("\(serviceName): \(error.localizedDescription)")
                 }
             }
@@ -205,6 +210,7 @@ class ServiceViewModel: Identifiable {
     let id: UUID
     var config: ServiceConfig
     var usage: UsageData
+    var lastError: String?
 
     init(config: ServiceConfig, usage: UsageData) {
         self.id = config.id
@@ -226,7 +232,6 @@ class ServiceViewModel: Identifiable {
     var sevenDayResetDate: Date? { usage.sevenDayResetDate }
     var daysUntilSevenDayReset: Int? { usage.daysUntilSevenDayReset }
 
-    // Claude-specific
     var fiveHourUsage: Double? { usage.fiveHourUsage }
     var sevenDayUsage: Double? { usage.sevenDayUsage }
     var hasClaudeUsageWindows: Bool { fiveHourUsage != nil || sevenDayUsage != nil }
@@ -234,7 +239,18 @@ class ServiceViewModel: Identifiable {
     var formattedTokensUsed: String { formatTokens(tokensUsed) }
     var formattedTokensLimit: String { formatTokens(tokensLimit) }
 
+    var isAuthError: Bool {
+        guard let error = lastError else { return false }
+        let lower = error.lowercased()
+        return lower.contains("401") || lower.contains("403")
+            || lower.contains("토큰") || lower.contains("만료")
+            || lower.contains("unauthorized") || lower.contains("token")
+            || lower.contains("scope") || lower.contains("revoke")
+            || lower.contains("재인증") || lower.contains("credential")
+    }
+
     var status: ServiceStatus {
+        if isAuthError { return .critical }
         switch usagePercentage {
         case 0..<75: return .normal
         case 75..<90: return .warning
@@ -256,12 +272,4 @@ class ServiceViewModel: Identifiable {
 
 enum ServiceStatus {
     case normal, warning, critical
-
-    var color: Color {
-        switch self {
-        case .normal: return .green
-        case .warning: return .orange
-        case .critical: return .red
-        }
-    }
 }

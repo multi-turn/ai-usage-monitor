@@ -6,11 +6,12 @@ struct UsageBarView: View {
     let percentage: Double
 
     private var color: Color {
+        let theme = ThemeManager.shared.current
         switch percentage {
-        case 0..<50: return .green
-        case 50..<75: return .yellow
-        case 75..<90: return .orange
-        default: return .red
+        case 0..<50: return theme.statusSuccess
+        case 50..<75: return theme.statusCaution
+        case 75..<90: return theme.statusWarning
+        default: return theme.statusDanger
         }
     }
 
@@ -33,7 +34,7 @@ struct UsageBarView: View {
                 ZStack(alignment: .leading) {
                     // Background
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.gray.opacity(0.2))
+                        .fill(ThemeManager.shared.current.trackSubtle)
                         .frame(height: 8)
 
                     // Progress
@@ -67,4 +68,3 @@ struct UsageBarView: View {
         }
     }
 }
-

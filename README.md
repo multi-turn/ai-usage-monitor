@@ -1,61 +1,83 @@
+<div align="center">
+
 # AI Usage Monitor
 
-macOS 메뉴바 앱으로 AI 서비스 사용량을 실시간으로 모니터링합니다.
+**Real-time AI service quota tracker for your macOS menu bar.**
 
-<img width="300" alt="screenshot" src="docs/screenshot.png">
+Keep tabs on Claude, Codex, and Gemini usage without leaving your workflow.
 
-## 지원 서비스
+[![macOS](https://img.shields.io/badge/macOS-26.0%2B-000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
+[![Swift](https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white)](https://swift.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/multi-turn/ai-usage-monitor?include_prereleases)](../../releases)
 
-- **Claude** - Claude Code OAuth 자격증명을 통한 사용량 조회
-  - 5시간 윈도우 사용량
-  - 7일 윈도우 사용량
-  - 플랜 정보 (Max, Pro, Team 등)
+<br>
 
-- **Codex** - `~/.codex` 세션 기반 사용량 추적
+<img src="docs/screenshot-main.png" width="320" alt="AI Usage Monitor - Main Panel">
+&nbsp;&nbsp;&nbsp;
+<img src="docs/screenshot-settings.png" width="320" alt="AI Usage Monitor - Settings">
 
-## 설치
+</div>
 
-### 요구사항
-- macOS 14.0 (Sonoma) 이상
-- Claude Code 설치 및 로그인 (Claude 모니터링용)
+<br>
 
-### 다운로드
-[Releases](../../releases) 페이지에서 최신 DMG 파일을 다운로드하세요.
+## Features
 
-### 설치 방법
-1. DMG 파일을 열고 "AI Usage Monitor"를 Applications 폴더로 드래그
-2. **중요**: 첫 실행 시 앱을 **우클릭** → **열기** 선택
-   - 서명되지 않은 앱이므로 Gatekeeper 경고가 표시됩니다
-   - "열기" 버튼을 클릭하여 실행을 허용하세요
+- **Menu Bar at a Glance** &mdash; Per-service bar charts show remaining quota directly in the menu bar
+- **Circular Gauges** &mdash; Animated dual-ring gauges: outer ring for short-term, inner for long-term quota
+- **Detailed Breakdown** &mdash; Remaining percentage, reset countdown, and plan tier for each service
+- **Usage History** &mdash; 24-hour and 7-day usage charts to spot trends
+- **Auto Refresh** &mdash; Configurable polling interval (1m / 5m / 15m / 30m)
+- **macOS Native** &mdash; Built with SwiftUI and Liquid Glass on macOS Tahoe
+- **10 Languages** &mdash; English, Korean, Japanese, Chinese, Spanish, French, German, Portuguese, Russian, Italian
 
-## 기능
+## Supported Services
 
-### 메뉴바 표시
-- 각 서비스별 남은 쿼터를 시각적 바 차트로 표시
-- X축: 5시간 남은 비율 (바 개수)
-- Y축: 7일 남은 비율 (바 높이)
+| Service | Auth Method | Metrics |
+|---------|------------|---------|
+| **Claude** | OAuth via Claude Code Keychain | 5-hour window, 7-day window, plan tier |
+| **Codex** | OAuth via Codex CLI Keychain | 5-hour window, 7-day window, plan tier |
+| **Gemini** | OAuth via `~/.gemini/oauth_creds.json` | Pro quota, Flash quota, reset times |
 
-### 상세 정보
-- 5시간/7일 윈도우별 남은 쿼터 퍼센트
-- 다음 리필까지 남은 시간
-- 사용량 히스토리 그래프
+## Install
 
-### 설정
-- 서비스별 활성화/비활성화
-- 갱신 주기 설정 (1분, 5분, 15분, 30분)
-- 로그인 시 자동 실행
-- 다국어 지원 (한국어, English, 日本語, 中文, Español, Français, Deutsch, Português, Русский, Italiano)
+### Download
 
-## 빌드
+Grab the latest `.dmg` from the [Releases](../../releases) page.
+
+### Manual
+
+1. Open the DMG and drag **AI Usage Monitor** to Applications
+2. First launch: **Right-click** the app &rarr; **Open** (required for unsigned apps)
+
+### Build from Source
 
 ```bash
-# 개발 빌드
+git clone https://github.com/multi-turn/ai-usage-monitor.git
+cd ai-usage-monitor
 swift build
-
-# 릴리스 빌드 (.app 번들 생성)
-./scripts/build-app.sh 1.0.0
+.build/debug/AIUsageMonitor
 ```
 
-## 라이선스
+> Requires Xcode 16+ and macOS 26.0 (Tahoe) SDK.
 
-MIT License
+## How It Works
+
+AI Usage Monitor reads existing OAuth credentials from your local CLI tools. **No API keys or passwords are stored by the app.**
+
+| Service | Credential Source |
+|---------|-----------------|
+| Claude | macOS Keychain (`Claude Code-credentials`) |
+| Codex | macOS Keychain (`Codex-credentials`) |
+| Gemini | `~/.gemini/oauth_creds.json` + auto token refresh |
+
+The app queries each provider's usage/quota API and displays the results. Token refresh is handled automatically.
+
+## Requirements
+
+- macOS 26.0 (Tahoe) or later
+- At least one of: [Claude Code](https://claude.ai/code), [Codex CLI](https://openai.com/codex), or [Gemini CLI](https://ai.google.dev/gemini-api/docs/gemini-cli) installed and authenticated
+
+## License
+
+[MIT](LICENSE)

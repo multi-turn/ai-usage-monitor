@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "AIUsageMonitor",
     platforms: [
-        .macOS(.v14)
+        .macOS("26.0")
     ],
     products: [
         .executable(
@@ -22,6 +22,10 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/AIUsageMonitor",
+            resources: [
+                .process("Resources/Icons"),
+                .copy("Resources/Scripts/updater.sh"),
+            ],
             swiftSettings: [
                 .define("ENABLE_SPARKLE"),
             ]

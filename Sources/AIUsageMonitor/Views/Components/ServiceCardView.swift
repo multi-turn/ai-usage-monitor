@@ -82,17 +82,28 @@ struct ServiceCardView: View {
             }
         }
         .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
+        .premiumCard()
     }
 }
 
 struct StatusIndicator: View {
     let status: ServiceStatus
 
+    private var color: Color {
+        let theme = ThemeManager.shared.current
+        switch status {
+        case .normal:
+            return theme.statusSuccess
+        case .warning:
+            return theme.statusWarning
+        case .critical:
+            return theme.statusDanger
+        }
+    }
+
     var body: some View {
         Circle()
-            .fill(status.color)
+            .fill(color)
             .frame(width: 8, height: 8)
     }
 }
@@ -125,7 +136,7 @@ struct CostView: View {
                     Text(formatCurrency(projected))
                         .font(.callout)
                         .fontWeight(.medium)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(ThemeManager.shared.current.statusWarning)
                 }
             }
         }
@@ -167,11 +178,12 @@ struct ClaudeUsageView: View {
     }
 
     private func colorForPercentage(_ percentage: Double) -> Color {
+        let theme = ThemeManager.shared.current
         switch percentage {
-        case 0..<50: return .green
-        case 50..<75: return .yellow
-        case 75..<90: return .orange
-        default: return .red
+        case 0..<50: return theme.statusSuccess
+        case 50..<75: return theme.statusCaution
+        case 75..<90: return theme.statusWarning
+        default: return theme.statusDanger
         }
     }
 }
@@ -197,7 +209,7 @@ struct UsageRow: View {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.gray.opacity(0.2))
+                        .fill(ThemeManager.shared.current.trackSubtle)
                         .frame(height: 6)
 
                     RoundedRectangle(cornerRadius: 3)
@@ -209,4 +221,3 @@ struct UsageRow: View {
         }
     }
 }
-

@@ -46,9 +46,7 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
     // MARK: - AIServiceAPI
 
     func fetchUsage() async throws -> UsageData {
-        // Try OAuth first (Claude Code credentials from Keychain)
         if var credentials = KeychainManager.shared.getClaudeCodeCredentials() {
-            // Check if token is expired or will expire soon
             if credentials.isExpired || credentials.willExpireSoon {
                 print("🔄 Token expired or expiring soon, attempting refresh...")
                 do {
@@ -66,30 +64,43 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
                 }
             }
 
+            // Strategy 1: OAuth API (requires user:profile scope)
             do {
                 return try await fetchOAuthUsage(accessToken: credentials.accessToken, tier: credentials.rateLimitTier)
-            } catch let error as APIError {
-                if case .unauthorized = error {
-                    // Try one more refresh attempt
-                    print("🔄 Got 401, attempting token refresh...")
-                    do {
-                        let newCredentials = try await KeychainManager.shared.refreshClaudeCodeToken()
-                        return try await fetchOAuthUsage(accessToken: newCredentials.accessToken, tier: newCredentials.rateLimitTier)
-                    } catch {
-                        if error is TokenRefreshError {
-                            KeychainManager.shared.clearCredentialsCache()
-                        }
-                        throw APIError.httpError(
-                            statusCode: 401,
-                            message: "토큰이 만료되었습니다. 터미널에서 'claude'를 실행해주세요."
-                        )
-                    }
+            } catch let oauthError as APIError {
+                switch oauthError {
+                case .unauthorized:
+                    print("🔄 OAuth 401 → trying token refresh, then probe fallback...")
+                case .httpError(let code, _) where code == 403:
+                    print("🔄 OAuth 403 (scope issue) → trying probe fallback...")
+                default:
+                    throw oauthError
                 }
-                throw error
+
+                do {
+                    let refreshed = try await KeychainManager.shared.refreshClaudeCodeToken()
+                    return try await fetchOAuthUsage(accessToken: refreshed.accessToken, tier: refreshed.rateLimitTier)
+                } catch {
+                    print("⚠️ Token refresh failed, falling through to probe...")
+                }
+
+                // Strategy 2: Status Probe (works with user:inference scope)
+                do {
+                    let probeResult = try await ClaudeStatusProbe.shared.probe(accessToken: credentials.accessToken)
+                    return convertProbeToUsageData(probe: probeResult, tier: credentials.rateLimitTier)
+                } catch {
+                    print("⚠️ Status probe also failed: \(error.localizedDescription)")
+                }
+
+                KeychainManager.shared.clearCredentialsCache()
+                ClaudeStatusProbe.shared.clearCache()
+                throw APIError.httpError(
+                    statusCode: 401,
+                    message: "토큰에 usage 조회 권한이 없습니다. 터미널에서 'claude /logout' 후 'claude'를 실행해주세요."
+                )
             }
         }
 
-        // Fall back to local tracking if no credentials
         if !config.apiKey.isEmpty {
             let localUsage = getLocalUsage()
             return convertToUsageData(localUsage: localUsage, tier: "Local Tracking")
@@ -120,7 +131,23 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
         }
 
         guard httpResponse.statusCode == 200 else {
-            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+            if httpResponse.statusCode == 401 {
+                throw APIError.unauthorized
+            }
+            if httpResponse.statusCode == 403 {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                if body.contains("scope") || body.contains("permission") {
+                    throw APIError.httpError(
+                        statusCode: 403,
+                        message: "토큰에 usage 조회 권한이 없습니다. 터미널에서 'claude /logout' 후 'claude'를 실행해주세요."
+                    )
+                }
+                if body.contains("revoked") {
+                    throw APIError.httpError(
+                        statusCode: 403,
+                        message: "토큰이 만료되었습니다. 터미널에서 'claude'를 실행해주세요."
+                    )
+                }
                 throw APIError.unauthorized
             }
             let message = String(data: data, encoding: .utf8)
@@ -216,6 +243,49 @@ class AnthropicClient: BaseAPIClient, AIServiceAPI {
             lastUpdated: now,
             fiveHourUsage: response.fiveHour?.utilization,
             sevenDayUsage: response.sevenDay?.utilization
+        )
+    }
+
+    // MARK: - Status Probe Conversion
+
+    private func convertProbeToUsageData(probe: ClaudeStatusProbe.ProbeResult, tier: String?) -> UsageData {
+        let now = Date()
+        let calendar = Calendar.current
+        let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
+        let endOfMonth = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: startOfMonth)!
+
+        let usagePercentage = probe.fiveMinuteUtilization ?? probe.dailyUtilization ?? 0
+        let estimatedLimit: Int64 = 1_000_000
+        let tokensUsed = Int64(Double(estimatedLimit) * (usagePercentage / 100.0))
+
+        let tierName: String
+        if let t = tier?.lowercased() {
+            if t.contains("max") { tierName = "Claude Max" }
+            else if t.contains("pro") { tierName = "Claude Pro" }
+            else if t.contains("team") { tierName = "Claude Team" }
+            else if t.contains("enterprise") { tierName = "Claude Enterprise" }
+            else if t.contains("free") { tierName = "Claude Free" }
+            else { tierName = tier ?? "Claude" }
+        } else {
+            tierName = "Claude Pro"
+        }
+
+        return UsageData(
+            tokensUsed: tokensUsed,
+            tokensLimit: estimatedLimit,
+            inputTokens: nil,
+            outputTokens: nil,
+            periodStart: startOfMonth,
+            periodEnd: endOfMonth,
+            resetDate: probe.fiveMinuteReset ?? endOfMonth,
+            sevenDayResetDate: probe.dailyReset,
+            currentCost: nil,
+            projectedCost: nil,
+            currency: "USD",
+            tier: tierName,
+            lastUpdated: now,
+            fiveHourUsage: probe.fiveMinuteUtilization,
+            sevenDayUsage: probe.dailyUtilization
         )
     }
 

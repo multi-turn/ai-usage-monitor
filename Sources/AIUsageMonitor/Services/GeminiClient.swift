@@ -19,10 +19,16 @@ class GeminiClient: BaseAPIClient, AIServiceAPI {
             accessToken = try await refreshToken(creds)
         }
         
-        let projectId = try await discoverProjectId(accessToken: accessToken)
-        let quota = try await fetchQuota(accessToken: accessToken, projectId: projectId)
-        
-        return convertToUsageData(quota: quota)
+        do {
+            let projectId = try await discoverProjectId(accessToken: accessToken)
+            let quota = try await fetchQuota(accessToken: accessToken, projectId: projectId)
+            return convertToUsageData(quota: quota)
+        } catch APIError.unauthorized {
+            accessToken = try await refreshToken(creds)
+            let projectId = try await discoverProjectId(accessToken: accessToken)
+            let quota = try await fetchQuota(accessToken: accessToken, projectId: projectId)
+            return convertToUsageData(quota: quota)
+        }
     }
     
     private struct OAuthCredentials {
@@ -85,7 +91,7 @@ class GeminiClient: BaseAPIClient, AIServiceAPI {
     }
     
     private func isTokenExpired(_ creds: OAuthCredentials) -> Bool {
-        guard let expiresAt = creds.expiresAt else { return false }
+        guard let expiresAt = creds.expiresAt else { return true } // No expiry info → assume expired, force refresh
         return Date() >= expiresAt.addingTimeInterval(-60)
     }
     
@@ -106,7 +112,7 @@ class GeminiClient: BaseAPIClient, AIServiceAPI {
         let url = URL(string: "https://oauth2.googleapis.com/token")!
         let body = "grant_type=refresh_token&client_id=\(clientId)&client_secret=\(clientSecret)&refresh_token=\(creds.refreshToken)"
         
-        let (data, response) = try await performRequest(
+        let (data, _) = try await performRequest(
             url: url,
             headers: ["Content-Type": "application/x-www-form-urlencoded"],
             method: "POST",
@@ -124,34 +130,39 @@ class GeminiClient: BaseAPIClient, AIServiceAPI {
     }
     
     private func extractClientCredentials() -> (clientId: String, clientSecret: String) {
-        let geminiPaths = [
-            "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/node_modules/@anthropic-ai/claude-code/node_modules/@anthropic-ai/claude-code-cli/node_modules/@google/generative-ai-cli/lib/oauth2.js",
-            "/usr/local/lib/node_modules/@google/generative-ai-cli/lib/oauth2.js",
-            "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/node_modules/@anthropic-ai/claude-code-cli/node_modules/@google/generative-ai-cli/lib/oauth2.js"
-        ]
-        
         let whichResult = try? shellSync("which gemini")
         if let path = whichResult?.trimmingCharacters(in: .whitespacesAndNewlines),
            !path.isEmpty {
             let resolved = (try? shellSync("readlink -f '\(path)'"))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? path
             let binDir = (resolved as NSString).deletingLastPathComponent
             let libDir = (binDir as NSString).deletingLastPathComponent
-            let oauth2Path = "\(libDir)/lib/oauth2.js"
-            if FileManager.default.fileExists(atPath: oauth2Path) {
-                if let creds = parseOAuth2JS(at: oauth2Path) {
+
+            let candidatePaths = [
+                "\(libDir)/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
+                "\(libDir)/src/code_assist/oauth2.js",
+                "\(libDir)/lib/oauth2.js",
+            ]
+
+            for candidate in candidatePaths {
+                if FileManager.default.fileExists(atPath: candidate),
+                   let creds = parseOAuth2JS(at: candidate) {
                     return creds
                 }
             }
         }
-        
-        for path in geminiPaths {
-            if FileManager.default.fileExists(atPath: path) {
-                if let creds = parseOAuth2JS(at: path) {
-                    return creds
-                }
+
+        let fallbackPaths = [
+            "/opt/homebrew/lib/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
+            "/usr/local/lib/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
+        ]
+
+        for path in fallbackPaths {
+            if FileManager.default.fileExists(atPath: path),
+               let creds = parseOAuth2JS(at: path) {
+                return creds
             }
         }
-        
+
         return ("", "")
     }
     
@@ -161,19 +172,20 @@ class GeminiClient: BaseAPIClient, AIServiceAPI {
         var clientId: String?
         var clientSecret: String?
         
-        let idPattern = try? NSRegularExpression(pattern: "client_id[\"']?\\s*[:=]\\s*[\"']([^\"']+)[\"']")
-        let secretPattern = try? NSRegularExpression(pattern: "client_secret[\"']?\\s*[:=]\\s*[\"']([^\"']+)[\"']")
+        let patterns: [(NSRegularExpression?, (String) -> Void)] = [
+            (try? NSRegularExpression(pattern: "OAUTH_CLIENT_ID\\s*=\\s*[\"']([^\"']+)[\"']"), { clientId = $0 }),
+            (try? NSRegularExpression(pattern: "client_id[\"']?\\s*[:=]\\s*[\"']([^\"']+)[\"']"), { clientId = clientId ?? $0 }),
+            (try? NSRegularExpression(pattern: "OAUTH_CLIENT_SECRET\\s*=\\s*[\"']([^\"']+)[\"']"), { clientSecret = $0 }),
+            (try? NSRegularExpression(pattern: "client_secret[\"']?\\s*[:=]\\s*[\"']([^\"']+)[\"']"), { clientSecret = clientSecret ?? $0 }),
+        ]
         
         let range = NSRange(content.startIndex..., in: content)
         
-        if let match = idPattern?.firstMatch(in: content, range: range),
-           let idRange = Range(match.range(at: 1), in: content) {
-            clientId = String(content[idRange])
-        }
-        
-        if let match = secretPattern?.firstMatch(in: content, range: range),
-           let secretRange = Range(match.range(at: 1), in: content) {
-            clientSecret = String(content[secretRange])
+        for (pattern, setter) in patterns {
+            if let match = pattern?.firstMatch(in: content, range: range),
+               let matchRange = Range(match.range(at: 1), in: content) {
+                setter(String(content[matchRange]))
+            }
         }
         
         guard let id = clientId, let secret = clientSecret else { return nil }
@@ -182,7 +194,7 @@ class GeminiClient: BaseAPIClient, AIServiceAPI {
     
     private func updateStoredToken(newToken: String, expiresIn: Int?) {
         let credPath = "\(geminiHome)/oauth_creds.json"
-        guard var data = try? Data(contentsOf: URL(fileURLWithPath: credPath)),
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: credPath)),
               var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return
         }
@@ -198,7 +210,7 @@ class GeminiClient: BaseAPIClient, AIServiceAPI {
     }
     
     private func discoverProjectId(accessToken: String) async throws -> String {
-        let url = URL(string: "https://cloudresourcemanager.googleapis.com/v1/projects?filter=name:gen-lang-client*&pageSize=10")!
+        let url = URL(string: "https://cloudresourcemanager.googleapis.com/v1/projects?pageSize=50")!
         
         let (data, _) = try await performRequest(
             url: url,
@@ -213,8 +225,12 @@ class GeminiClient: BaseAPIClient, AIServiceAPI {
             throw APIError.decodingError(NSError(domain: "GeminiClient", code: -2))
         }
         
-        guard let firstProject = projects.first,
-              let projectId = firstProject["projectId"] as? String else {
+        let geminiProject = projects.first { project in
+            let projectId = project["projectId"] as? String ?? ""
+            return projectId.hasPrefix("gen-lang-client")
+        }
+        
+        guard let projectId = geminiProject?["projectId"] as? String else {
             throw APIError.httpError(statusCode: 404, message: "No Gemini project found")
         }
         
@@ -224,9 +240,7 @@ class GeminiClient: BaseAPIClient, AIServiceAPI {
     private func fetchQuota(accessToken: String, projectId: String) async throws -> GeminiQuota {
         let url = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")!
         
-        let bodyJson: [String: Any] = [
-            "project_id": projectId
-        ]
+        let bodyJson: [String: Any] = ["project": projectId]
         let bodyData = try JSONSerialization.data(withJSONObject: bodyJson)
         
         let (data, _) = try await performRequest(
@@ -258,14 +272,19 @@ class GeminiClient: BaseAPIClient, AIServiceAPI {
         var lowestFlashFraction = 1.0
         var proResetTime: Date?
         var flashResetTime: Date?
+        var hasProModel = false
+        
+        let formatter = ISO8601DateFormatter()
         
         for bucket in buckets {
             let remainingFraction = bucket["remainingFraction"] as? Double ?? 1.0
-            let modelId = (bucket["modelId"] as? String ?? "").lowercased()
+            let rawModelId = bucket["modelId"] as? String ?? ""
+            let modelId = rawModelId.lowercased()
+            
+            if modelId.hasSuffix("_vertex") { continue }
             
             var resetTime: Date?
             if let resetStr = bucket["resetTime"] as? String {
-                let formatter = ISO8601DateFormatter()
                 formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
                 resetTime = formatter.date(from: resetStr)
                 if resetTime == nil {
@@ -275,30 +294,28 @@ class GeminiClient: BaseAPIClient, AIServiceAPI {
             }
             
             if modelId.contains("pro") {
+                hasProModel = true
                 if remainingFraction < lowestProFraction {
                     lowestProFraction = remainingFraction
                     proResetTime = resetTime
                 }
-            } else if modelId.contains("flash") {
+            } else if modelId.contains("flash") || modelId.contains("lite") {
                 if remainingFraction < lowestFlashFraction {
                     lowestFlashFraction = remainingFraction
                     flashResetTime = resetTime
                 }
-            } else {
-                if remainingFraction < lowestProFraction {
-                    lowestProFraction = remainingFraction
-                    proResetTime = resetTime
-                }
             }
         }
         
-        let tierInfo = json["tier"] as? String ?? json["userTierId"] as? String
-        if let tier = tierInfo?.lowercased() {
-            if tier.contains("standard") || tier.contains("premium") {
+        if let tierInfo = json["tier"] as? String ?? json["userTierId"] as? String {
+            let tier = tierInfo.lowercased()
+            if tier.contains("premium") || tier.contains("pro") || tier.contains("standard") {
                 quota.tier = "Gemini Pro"
             } else {
                 quota.tier = "Gemini Free"
             }
+        } else {
+            quota.tier = hasProModel ? "Gemini Pro" : "Gemini Free"
         }
         
         quota.proRemaining = lowestProFraction
